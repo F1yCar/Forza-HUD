@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup Lab</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <style>
+        @supports (font: -apple-system-body) {
+            body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif; }
+        }
+        html, body { height: 100%; width: 100%; background-color: #000; color: #f5f5f7; overflow: hidden; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; position: fixed; }
+        
+        .lcd { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+        
+        .apple-material { background: rgba(20, 20, 25, 0.75); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); border-radius: 16px; }
+        .apple-button { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1); cursor: pointer; color: white; display: flex; align-items: center; justify-content: center; }
+        .apple-button:hover { background: rgba(255, 255, 255, 0.15); transform: scale(1.02); }
+        .apple-button-primary { background: #0a84ff; color: white; border: none; box-shadow: 0 4px 15px rgba(10, 132, 255, 0.3); }
+        .apple-button-primary:hover { background: #007aff; }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+
+        /* 调校表单专属样式 */
+        .setup-section { border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 16px; margin-bottom: 16px; }
+        .setup-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .section-title { font-size: 11px; font-weight: bold; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+        
+        .setup-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .setup-label { font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.8); width: 50%; }
+        .setup-input { background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 6px; padding: 5px 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; text-align: right; width: 72px; outline: none; transition: all 0.2s; box-shadow: inset 0 1px 3px rgba(0,0,0,0.3); }
+        .setup-input:focus { border-color: #0a84ff; background: rgba(0,0,0,0.6); box-shadow: inset 0 1px 3px rgba(0,0,0,0.3), 0 0 0 2px rgba(10, 132, 255, 0.2); }
+        
+        .dynamic-bound-row { background: rgba(0,0,0,0.2); border: 1px dashed rgba(255,255,255,0.1); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+        .bound-input { background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.2); color: #ffd60a; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; width: 44px; text-align: center; outline: none; transition: border-color 0.2s; padding-bottom: 2px; }
+        .bound-input:focus { border-color: #ffd60a; }
+
+        /* 模态框与通知 */
+        .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 999; align-items: center; justify-content: center; backdrop-filter: blur(8px); transition: opacity 0.3s; }
+        .modal-content { background: rgba(20, 20, 25, 0.95); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; width: 640px; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8); max-height: 85vh; display: flex; flex-direction: column; }
+        
+        #hud-toast { position: fixed; top: 24px; left: 50%; transform: translateX(-50%) translateY(-20px); background: rgba(20, 20, 25, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 10px 24px; border-radius: 999px; font-size: 11px; font-weight: bold; opacity: 0; pointer-events: none; transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); z-index: 9999; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-transform: uppercase; letter-spacing: 0.05em;}
+        #hud-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+        /* 录制按钮闪烁 */
+        @keyframes rec-pulse { 0%, 100% { border-color: rgba(255, 69, 58, 0.8); box-shadow: 0 0 15px rgba(255, 69, 58, 0.3); } 50% { border-color: rgba(255, 69, 58, 0.3); box-shadow: none; } }
+        .btn-recording { animation: rec-pulse 1.5s infinite; background: rgba(255, 69, 58, 0.15) !important; color: #ff453a !important; border: 1px solid #ff453a !important; }
+
+        select option { background-color: #1a1a1c; color: white; }
+    </style>
+</head>
+<body class="flex flex-col h-screen p-6 gap-6 relative">
+
+    <div id="hud-toast">[SYS] 提示信息</div>
+
+    <div class="absolute inset-0 z-[-1] bg-[radial-gradient(circle_at_50%_50%,rgba(30,30,35,1)_0%,rgba(0,0,0,1)_100%)]"></div>
+
+    <div class="flex justify-between items-end border-b border-white/10 pb-4 shrink-0 z-10">
+        <div class="flex items-center gap-6">
+            <button onclick="window.close()" class="apple-button px-4 py-2 text-xs font-bold uppercase tracking-widest gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg> 退出车间
+            </button>
+            <div class="flex flex-col">
+                <h1 class="text-lg font-semibold text-white/90 tracking-wide flex items-baseline gap-2">
+                    调校工程 <span class="text-xs font-normal text-[#0a84ff]">Setup Lab</span>
+                </h1>
+                <div class="mt-1 flex items-center gap-2">
+                    <span class="bg-[#0a84ff]/20 border border-[#0a84ff]/40 text-[#0a84ff] text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-widest">目标载具</span>
+                    <span id="live-car" class="text-[11px] font-bold text-white/80 truncate max-w-[250px]">等待遥测数据...</span>
+                    <span class="text-white/20 px-1">|</span>
+                    <span id="live-track" class="text-[10px] font-medium text-white/40 truncate max-w-[200px] uppercase">--</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="flex gap-4 items-center bg-black/40 p-2 rounded-xl border border-white/5 backdrop-blur-md">
+            <div class="text-right mr-2 flex flex-col justify-center">
+                <p class="text-[9px] font-bold text-white/40 uppercase mb-1 tracking-widest">工况采集 (Scenario)</p>
+                <select id="test-scenario" class="bg-transparent border border-white/20 text-xs text-white p-1 rounded outline-none cursor-pointer focus:border-[#0a84ff] font-medium">
+                    <option>直道极速/空力 (Aero/Top Speed)</option>
+                    <option>定圆侧偏/防倾 (Skidpad/Roll)</option>
+                    <option>综合单圈 (Full Lap)</option>
+                </select>
+            </div>
+            <button id="btn-rec" onclick="toggleRecording()" class="apple-button py-2.5 px-6 w-44 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2">
+                <span id="rec-dot" class="w-2 h-2 rounded-full bg-white/40 block"></span> 
+                <span id="rec-text">准备测试 (Standby)</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="flex gap-6 h-full overflow-hidden z-10">
+        
+        <div class="w-[35%] flex flex-col h-full shrink-0">
+            <div class="flex justify-between items-center mb-3 shrink-0">
+                <h2 class="text-xs font-bold text-white/70 uppercase tracking-widest">基准参数阵列</h2>
+                <div class="flex gap-2 bg-black/40 p-1 rounded-lg border border-white/5">
+                    <button onclick="openLoadModal()" class="apple-button px-3 py-1.5 text-[10px] uppercase font-bold tracking-wider text-white/70">载入 (Load)</button>
+                    <button onclick="saveSetup('temp')" class="apple-button px-3 py-1.5 text-[10px] uppercase font-bold tracking-wider text-white/70">暂存 (Temp)</button>
+                    <button onclick="saveSetup('saves')" class="apple-button apple-button-primary px-3 py-1.5 text-[10px] uppercase font-bold tracking-wider">入库 (Save)</button>
+                </div>
+            </div>
+            
+            <input type="text" id="setup-name" class="w-full bg-black/50 border border-white/10 text-white p-3 rounded-xl mb-4 text-xs font-bold placeholder-white/30 outline-none focus:border-[#0a84ff] transition-colors shadow-inner" placeholder="命名档案 (例: 银石_M4_高下压)">
+
+            <div class="apple-material flex-grow overflow-y-auto custom-scrollbar p-5" id="setup-form">
+                
+                <div class="setup-section">
+                    <div class="section-title">轮胎气压 (bar)</div>
+                    <div class="setup-row"><span class="setup-label">前轮 (1.0~3.8)</span><input type="number" id="tire-f" class="setup-input base-inp" step="0.1" value="2.0"></div>
+                    <div class="setup-row"><span class="setup-label">后轮 (1.0~3.8)</span><input type="number" id="tire-r" class="setup-input base-inp" step="0.1" value="2.0"></div>
+                </div>
+
+                <div class="setup-section">
+                    <div class="section-title text-[#0a84ff]">齿轮比 (Gearing)</div>
+                    <div class="setup-row"><span class="setup-label text-[#0a84ff]">最终传动比</span><input type="number" id="gear-final" class="setup-input base-inp border-[#0a84ff]/50" step="0.01" value="3.50"></div>
+                    <div class="setup-row"><span class="setup-label">1 档</span><input type="number" id="gear-1" class="setup-input base-inp" step="0.01"></div>
+                    <div class="setup-row"><span class="setup-label">2 档</span><input type="number" id="gear-2" class="setup-input base-inp" step="0.01"></div>
+                    <div class="setup-row"><span class="setup-label">3 档</span><input type="number" id="gear-3" class="setup-input base-inp" step="0.01"></div>
+                    <div class="setup-row"><span class="setup-label">4 档</span><input type="number" id="gear-4" class="setup-input base-inp" step="0.01"></div>
+                    <div class="setup-row"><span class="setup-label">5 档</span><input type="number" id="gear-5" class="setup-input base-inp" step="0.01"></div>
+                    <div class="setup-row"><span class="setup-label">6 档</span><input type="number" id="gear-6" class="setup-input base-inp" step="0.01"></div>
+                    <div class="setup-row"><span class="setup-label">7 档</span><input type="number" id="gear-7" class="setup-input base-inp" step="0.01"></div>
+                </div>
+
+                <div class="setup-section">
+                    <div class="section-title">轮胎定位 (Alignment - °)</div>
+                    <div class="setup-row"><span class="setup-label">前外倾角 (Camber)</span><input type="number" id="align-camb-f" class="setup-input" step="0.1" value="-2.0"></div>
+                    <div class="setup-row"><span class="setup-label">后外倾角</span><input type="number" id="align-camb-r" class="setup-input" step="0.1" value="-1.5"></div>
+                    <div class="setup-row"><span class="setup-label">前束角 (Toe)</span><input type="number" id="align-toe-f" class="setup-input" step="0.1" value="0.0"></div>
+                    <div class="setup-row"><span class="setup-label">后束角</span><input type="number" id="align-toe-r" class="setup-input" step="0.1" value="0.0"></div>
+                    <div class="setup-row"><span class="setup-label">前后倾角 (Caster)</span><input type="number" id="align-caster" class="setup-input" step="0.1" value="5.0"></div>
+                </div>
+
+                <div class="setup-section">
+                    <div class="section-title">防倾杆 (ARB)</div>
+                    <div class="setup-row"><span class="setup-label">前侧刚性 (1~40)</span><input type="number" id="arb-f" class="setup-input base-inp" step="0.1" value="20.0" oninput="triggerRecalculate()"></div>
+                    <div class="setup-row"><span class="setup-label">后侧刚性 (1~40)</span><input type="number" id="arb-r" class="setup-input base-inp" step="0.1" value="20.0" oninput="triggerRecalculate()"></div>
+                </div>
+
+                <div class="setup-section">
+                    <div class="section-title flex justify-between text-[#ffd60a]"><span>⚠️ 弹簧刚性 (Springs - KGF/MM)</span></div>
+                    <div class="dynamic-bound-row">
+                        <div class="flex justify-between items-center mb-3 border-b border-white/10 pb-2">
+                            <span class="text-[9px] text-white/40 uppercase tracking-widest">物理下限 (MIN)</span><input type="number" id="spring-min" class="bound-input" value="29.3" onchange="syncBounds()">
+                            <span class="text-[9px] text-white/40 uppercase tracking-widest">物理上限 (MAX)</span><input type="number" id="spring-max" class="bound-input" value="293.3" onchange="syncBounds()">
+                        </div>
+                        <div class="setup-row"><span class="setup-label text-white/80">前弹簧</span><input type="number" id="spring-f" class="setup-input base-inp border-[#ffd60a]/50 text-[#ffd60a]" step="0.1" value="150" oninput="triggerRecalculate()"></div>
+                        <div class="setup-row"><span class="setup-label text-white/80">后弹簧</span><input type="number" id="spring-r" class="setup-input base-inp border-[#ffd60a]/50 text-[#ffd60a]" step="0.1" value="160" oninput="triggerRecalculate()"></div>
+                    </div>
+                </div>
+
+                <div class="setup-section">
+                    <div class="section-title flex justify-between text-[#ffd60a]"><span>⚠️ 车身高度 (Ride Height - CM)</span></div>
+                    <div class="dynamic-bound-row">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-[9px] text-white/40 uppercase tracking-widest">前侧 MIN</span><input type="number" id="height-min-f" class="bound-input" value="7.5" onchange="syncBounds()">
+                            <span class="text-[9px] text-white/40 uppercase tracking-widest">前侧 MAX</span><input type="number" id="height-max-f" class="bound-input" value="12.5" onchange="syncBounds()">
+                        </div>
+                        <div class="flex justify-between items-center mb-3 border-b border-white/10 pb-2">
+                            <span class="text-[9px] text-white/40 uppercase tracking-widest">后侧 MIN</span><input type="number" id="height-min-r" class="bound-input" value="7.5" onchange="syncBounds()">
+                            <span class="text-[9px] text-white/40 uppercase tracking-widest">后侧 MAX</span><input type="number" id="height-max-r" class="bound-input" value="12.5" onchange="syncBounds()">
+                        </div>
+                        <div class="setup-row"><span class="setup-label text-white/80">前高度</span><input type="number" id="height-f" class="setup-input base-inp border-[#ffd60a]/50 text-[#ffd60a]" step="0.1"></div>
+                        <div class="setup-row"><span class="setup-label text-white/80">后高度</span><input type="number" id="height-r" class="setup-input base-inp border-[#ffd60a]/50 text-[#ffd60a]" step="0.1"></div>
+                    </div>
+                </div>
+
+                <div class="setup-section">
+                    <div class="section-title">阻尼 (Damping - 1~13)</div>
+                    <div class="setup-row"><span class="setup-label">前冲击硬度 (Bump)</span><input type="number" id="damp-bump-f" class="setup-input base-inp" step="0.1" value="5.0"></div>
+                    <div class="setup-row"><span class="setup-label">后冲击硬度</span><input type="number" id="damp-bump-r" class="setup-input base-inp" step="0.1" value="5.0"></div>
+                    <div class="setup-row"><span class="setup-label">前回弹硬度 (Rebound)</span><input type="number" id="damp-reb-f" class="setup-input base-inp" step="0.1" value="8.0"></div>
+                    <div class="setup-row"><span class="setup-label">后回弹硬度</span><input type="number" id="damp-reb-r" class="setup-input base-inp" step="0.1" value="8.0"></div>
+                </div>
+
+                <div class="setup-section">
+                    <div class="section-title flex justify-between text-[#ffd60a]"><span>⚠️ 空气动力学 (Aero - KG)</span></div>
+                    <div class="dynamic-bound-row">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-[9px] text-white/40 uppercase tracking-widest">前唇 MIN</span><input type="number" id="aero-min-f" class="bound-input" value="143" onchange="syncBounds()">
+                            <span class="text-[9px] text-white/40 uppercase tracking-widest">前唇 MAX</span><input type="number" id="aero-max-f" class="bound-input" value="238" onchange="syncBounds()">
+                        </div>
+                        <div class="flex justify-between items-center mb-3 border-b border-white/10 pb-2">
+                            <span class="text-[9px] text-white/40 uppercase tracking-widest">尾翼 MIN</span><input type="number" id="aero-min-r" class="bound-input" value="150" onchange="syncBounds()">
+                            <span class="text-[9px] text-white/40 uppercase tracking-widest">尾翼 MAX</span><input type="number" id="aero-max-r" class="bound-input" value="250" onchange="syncBounds()">
+                        </div>
+                        <div class="setup-row"><span class="setup-label text-white/80">前下压力</span><input type="number" id="aero-f" class="setup-input base-inp border-[#ffd60a]/50 text-[#ffd60a]" step="1" value="180" oninput="triggerRecalculate()"></div>
+                        <div class="setup-row"><span class="setup-label text-white/80">后下压力</span><input type="number" id="aero-r" class="setup-input base-inp border-[#ffd60a]/50 text-[#ffd60a]" step="1" value="200" oninput="triggerRecalculate()"></div>
+                    </div>
+                </div>
+
+                <div class="setup-section">
+                    <div class="section-title text-[#ff453a]">刹车系统</div>
+                    <div class="setup-row"><span class="setup-label text-[#ff453a]">刹车平衡 (100~0)</span><input type="number" id="brake-bal" class="setup-input border-[#ff453a]/50 text-[#ff453a]" step="1" value="50"></div>
+                    <div class="setup-row"><span class="setup-label text-[#ff453a]">刹车压力 (0~200)</span><input type="number" id="brake-pres" class="setup-input border-[#ff453a]/50 text-[#ff453a]" step="1" value="100"></div>
+                </div>
+
+                <div class="setup-section">
+                    <div class="section-title text-[#bf5af2]">差速器 (Differential)</div>
+                    <div class="setup-row"><span class="setup-label">前侧加速 (AWD)</span><input type="number" id="diff-acc-f" class="setup-input" step="1" value="0"></div>
+                    <div class="setup-row"><span class="setup-label">前侧减速 (AWD)</span><input type="number" id="diff-dec-f" class="setup-input" step="1" value="0"></div>
+                    <div class="setup-row"><span class="setup-label text-[#bf5af2]">后侧加速锁止</span><input type="number" id="diff-acc" class="setup-input border-[#bf5af2]/50 text-[#bf5af2]" step="1" value="41"></div>
+                    <div class="setup-row"><span class="setup-label text-[#bf5af2]">后侧减速锁止</span><input type="number" id="diff-dec" class="setup-input border-[#bf5af2]/50 text-[#bf5af2]" step="1" value="30"></div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="w-[65%] flex flex-col gap-6 h-full">
+            <div class="apple-material p-5 shrink-0 flex justify-between items-center z-10">
+                <div>
+                    <h2 class="text-[11px] font-bold text-white/50 uppercase tracking-widest mb-2">目标遥测挂载 (Target Telemetry)</h2>
+                    <select id="target-csv-select" class="bg-black/50 border border-white/10 text-white text-xs font-medium p-2.5 rounded-lg outline-none cursor-pointer w-80 shadow-inner focus:border-[#0a84ff] transition-colors" onchange="loadTargetCsv(this.value)">
+                        <option value="">-- 选择要反推的遥测记录 --</option>
+                    </select>
+                </div>
+                <div id="target-summary" class="text-right hidden">
+                    <span class="text-[9px] text-white/40 block uppercase tracking-widest mb-1">极速极限 / 最大横向 G 力</span>
+                    <span id="tgt-speed" class="text-3xl font-bold text-white lcd">--</span> <span class="text-[10px] text-white/40">km/h</span>
+                    <span class="text-white/10 px-3">|</span>
+                    <span id="tgt-latg" class="text-3xl font-bold text-[#bf5af2] lcd">--</span> <span class="text-[10px] text-[#bf5af2]/40">G</span>
+                </div>
+            </div>
+
+            <div class="flex gap-6 flex-grow overflow-hidden z-10">
+                <div class="w-1/2 apple-material p-5 flex flex-col relative">
+                    <h3 class="text-[11px] font-bold text-[#0a84ff] uppercase tracking-widest mb-2 border-b border-white/10 pb-2 shrink-0">底盘刚性与空力推演 (Delta %)</h3>
+                    <div class="flex-grow relative min-h-[200px] w-full">
+                        <canvas id="radar-chart"></canvas>
+                    </div>
+                    <div id="delta-readouts" class="mt-4 bg-black/40 p-3 rounded-xl border border-white/5 space-y-2 h-36 overflow-y-auto custom-scrollbar text-[11px] font-medium">
+                        <div class="text-white/30 text-center italic mt-12 text-xs">等待数据挂载...</div>
+                    </div>
+                </div>
+
+                <div class="w-1/2 apple-material p-5 flex flex-col relative overflow-hidden">
+                    <div class="flex justify-between items-center mb-2 border-b border-white/10 pb-2 shrink-0">
+                        <h3 class="text-[11px] font-bold text-[#ffd60a] uppercase tracking-widest">动力流透视 (Gearing X-Ray)</h3>
+                        <button onclick="resetGearZoom()" class="apple-button px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-white/60">重置视角</button>
+                    </div>
+                    <div class="flex-grow relative min-h-[200px] w-full">
+                        <canvas id="gear-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="cleanup-modal" class="modal-bg">
+        <div class="modal-content" style="width: 500px;">
+            <div class="flex justify-between items-center border-b border-white/10 pb-4 mb-5">
+                <h2 class="text-lg font-bold text-[#ff453a] tracking-tight">Temp 空间拦截</h2>
+            </div>
+            <p class="text-[13px] text-white/70 mb-4 leading-relaxed">检测到暂存区存在滞留超过 3 天的废弃调校档案，建议立即销毁释放空间：</p>
+            <div class="bg-black/50 border border-white/5 rounded-xl h-32 overflow-y-auto p-3 mb-6 custom-scrollbar">
+                <ul id="expired-list" class="text-[11px] text-white/50 space-y-2 font-mono"></ul>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="executeCleanup()" class="flex-1 bg-[#ff453a] hover:bg-[#ff375f] text-white font-bold py-2.5 rounded-lg transition-colors text-[13px]">确认销毁</button>
+                <button onclick="document.getElementById('cleanup-modal').style.display='none'" class="flex-1 bg-white/10 hover:bg-white/20 text-white font-bold py-2.5 rounded-lg transition-colors text-[13px]">暂时保留</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="load-setup-modal" class="modal-bg">
+        <div class="modal-content" style="width: 640px;">
+            <div class="flex justify-between items-center border-b border-white/10 pb-4 mb-5">
+                <h2 class="text-lg font-bold text-white tracking-tight">调校档案舱 <span class="text-xs text-white/40 ml-1 font-normal">Vault</span></h2>
+                <button onclick="document.getElementById('load-setup-modal').style.display='none'" class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all">&times;</button>
+            </div>
+            
+            <div class="flex gap-6">
+                <div class="w-1/2">
+                    <h3 class="text-[10px] font-bold text-[#0a84ff] mb-3 uppercase tracking-widest">正式入库 (Saves)</h3>
+                    <div id="load-saves-list" class="h-56 overflow-y-auto custom-scrollbar space-y-1.5 bg-black/30 p-2 rounded-xl border border-white/5"></div>
+                </div>
+                <div class="w-1/2">
+                    <h3 class="text-[10px] font-bold text-white/50 mb-3 uppercase tracking-widest">测试暂存 (Temp)</h3>
+                    <div id="load-temp-list" class="h-56 overflow-y-auto custom-scrollbar space-y-1.5 bg-black/30 p-2 rounded-xl border border-white/5"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isRecording = false;
+        let recToggleLock = false; 
+        const ws = new WebSocket(`ws://${window.location.host}/ws`);
+        
+        let radarChartInst = null;
+        let gearChartInst = null;
+        let targetTelemetryData = null; 
+        let simulatedTargetProfile = {}; 
+        let currentLiveCar = "";
+
+        const boundIds = ['spring-min', 'spring-max', 'height-min-f', 'height-max-f', 'height-min-r', 'height-max-r', 'aero-min-f', 'aero-max-f', 'aero-min-r', 'aero-max-r'];
+
+        // Chart.js 全局 Apple 化配置
+        Chart.defaults.color = 'rgba(255, 255, 255, 0.4)';
+        Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+
+        function showToast(msg, isError = false) {
+            const toast = document.getElementById('hud-toast');
+            toast.innerText = msg;
+            if (isError) {
+                toast.style.borderColor = 'rgba(255, 69, 58, 0.3)';
+                toast.style.color = '#ff453a';
+                toast.style.boxShadow = '0 10px 30px rgba(255, 69, 58, 0.2)';
+            } else {
+                toast.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                toast.style.color = 'white';
+                toast.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.5)';
+            }
+            toast.classList.add('show');
+            setTimeout(() => { toast.classList.remove('show'); }, 2500);
+        }
+
+        ws.onmessage = (event) => {
+            try {
+                const d = JSON.parse(event.data);
+                if (d.IsRaceOn === 0) return;
+                
+                let incomingCar = d.Car;
+                document.getElementById('live-car').innerText = incomingCar;
+                
+                if (incomingCar !== "等待遥测数据..." && incomingCar !== currentLiveCar) {
+                    currentLiveCar = incomingCar;
+                    fetchCarBounds(currentLiveCar);
+                }
+
+                if (d.Track === "FH5_FreeRoam" || d.Mode === "FH5") {
+                    document.getElementById('live-track').innerText = "通用环境 (FreeRoam)";
+                    document.getElementById('live-track').className = "text-[10px] font-medium text-[#ffd60a] truncate max-w-[200px] uppercase tracking-wider";
+                } else {
+                    document.getElementById('live-track').innerText = d.Track;
+                    document.getElementById('live-track').className = "text-[10px] font-medium text-white/50 truncate max-w-[200px] uppercase tracking-wider";
+                }
+                
+                if (!recToggleLock && d.IsRec !== isRecording) {
+                    isRecording = d.IsRec;
+                    updateRecordBtnUI();
+                }
+            } catch(e) {}
+        };
+
+        async function fetchCarBounds(carName) {
+            try {
+                const res = await fetch('/api/bounds/' + encodeURIComponent(carName));
+                const data = await res.json();
+                if (Object.keys(data).length > 0) {
+                    boundIds.forEach(id => {
+                        if (data[id] !== undefined) document.getElementById(id).value = data[id];
+                    });
+                    triggerRecalculate();
+                }
+            } catch(e) {}
+        }
+
+        async function syncBounds() {
+            if (!currentLiveCar || currentLiveCar === "等待遥测数据...") return;
+            let payload = {};
+            boundIds.forEach(id => { payload[id] = parseFloat(document.getElementById(id).value) || 0; });
+            try {
+                await fetch('/api/bounds/' + encodeURIComponent(currentLiveCar), {
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+                });
+                showToast(`[SYS] 物理极值约束已更新`);
+            } catch(e) {}
+            triggerRecalculate();
+        }
+
+        function toggleRecording() {
+            isRecording = !isRecording;
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ cmd: 'toggle_rec', val: isRecording }));
+            }
+            updateRecordBtnUI();
+            
+            recToggleLock = true;
+            setTimeout(() => { recToggleLock = false; }, 500);
+        }
+
+        function updateRecordBtnUI() {
+            const btn = document.getElementById('btn-rec');
+            const text = document.getElementById('rec-text');
+            const dot = document.getElementById('rec-dot');
+            if (isRecording) {
+                btn.className = "apple-button btn-recording py-2.5 px-6 w-44 font-bold text-xs uppercase tracking-wider gap-2 flex items-center justify-center";
+                text.innerText = "录制中 (Recording)";
+                dot.className = "w-2 h-2 rounded-full bg-[#ff453a] block animate-pulse";
+            } else {
+                btn.className = "apple-button py-2.5 px-6 w-44 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2";
+                text.innerText = "准备测试 (Standby)";
+                dot.className = "w-2 h-2 rounded-full bg-white/40 block";
+            }
+        }
+
+        window.onload = async () => {
+            initCharts();
+            try {
+                const res = await fetch('/api/setups/check_temp');
+                const data = await res.json();
+                if (data.expired && data.expired.length > 0) {
+                    const ul = document.getElementById('expired-list');
+                    data.expired.forEach(f => { ul.innerHTML += `<li><span class="text-[#ff453a] font-bold mr-2">[${f.age_days} DAYS]</span> ${f.name}</li>`; });
+                    document.getElementById('cleanup-modal').style.display = 'flex';
+                }
+            } catch(e) {}
+
+            try {
+                const lapRes = await fetch('/api/laps');
+                const lapData = await lapRes.json();
+                const sel = document.getElementById('target-csv-select');
+                lapData.files.forEach(f => {
+                    const opt = document.createElement('option');
+                    opt.value = f; opt.innerText = f.split(/[/\\]/).pop().replace('.csv', '');
+                    sel.appendChild(opt);
+                });
+            } catch(e) {}
+        };
+
+        function resetGearZoom() { if (gearChartInst) gearChartInst.resetZoom(); }
+
+        function initCharts() {
+            const ctxRadar = document.getElementById('radar-chart');
+            radarChartInst = new Chart(ctxRadar, {
+                type: 'radar',
+                data: {
+                    labels: ['前空力', '后空力', '前弹簧', '后弹簧', '前防倾杆', '后防倾杆'],
+                    datasets: [
+                        { label: '基准 (Base)', data: [50, 50, 50, 50, 50, 50], borderColor: '#0a84ff', backgroundColor: 'rgba(10, 132, 255, 0.15)', borderWidth: 2, pointBackgroundColor: '#0a84ff', pointRadius: 2, pointHitRadius: 20 },
+                        { label: '目标推演 (Target)', data: [0, 0, 0, 0, 0, 0], borderColor: '#bf5af2', backgroundColor: 'rgba(191, 90, 242, 0.15)', borderWidth: 2, borderDash: [4, 4], pointBackgroundColor: '#bf5af2', pointRadius: 2, pointHitRadius: 20 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { mode: 'nearest', intersect: false }, 
+                    scales: { 
+                        r: { 
+                            angleLines: { color: 'rgba(255,255,255,0.05)' }, 
+                            grid: { color: 'rgba(255,255,255,0.05)' }, 
+                            pointLabels: { color: 'rgba(255,255,255,0.5)', font: { size: 10, family: 'ui-monospace, monospace' } }, 
+                            ticks: { display: false, min: 0, max: 100 } 
+                        } 
+                    },
+                    plugins: { legend: { labels: { color: 'rgba(255,255,255,0.5)', font: { size: 10 } } } }
+                }
+            });
+
+            const ctxGear = document.getElementById('gear-chart');
+            gearChartInst = new Chart(ctxGear, {
+                type: 'scatter',
+                data: { datasets: [] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    interaction: { mode: 'nearest', axis: 'xy', intersect: false },
+                    elements: { point: { radius: 1.5, hitRadius: 25, hoverRadius: 4 } }, 
+                    scales: { 
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.4)', font: { family: 'ui-monospace, monospace' } } },
+                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.4)', font: { family: 'ui-monospace, monospace' } } }
+                    },
+                    plugins: { 
+                        legend: { display: false }, 
+                        tooltip: { enabled: true, backgroundColor: 'rgba(20, 20, 25, 0.9)', titleFont: { family: 'ui-monospace, monospace' }, bodyFont: { family: 'ui-monospace, monospace' }, borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1 },
+                        zoom: { pan: { enabled: true, mode: 'xy' }, zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' } }
+                    }
+                }
+            });
+        }
+
+        function loadTargetCsv(filename) {
+            if (!filename) {
+                targetTelemetryData = null;
+                document.getElementById('target-summary').classList.add('hidden');
+                document.getElementById('delta-readouts').innerHTML = '<div class="text-white/30 text-center italic mt-12 text-xs">等待数据挂载...</div>';
+                gearChartInst.data.datasets = []; gearChartInst.update();
+                radarChartInst.data.datasets[1].data = [0,0,0,0,0,0]; radarChartInst.update();
+                return;
+            }
+
+            Papa.parse(`/data/${encodeURIComponent(filename)}`, {
+                download: true, header: true, dynamicTyping: true,
+                complete: function(results) {
+                    targetTelemetryData = results.data.filter(r => r.Speed != null && r.CurrentEngineRpm != null);
+                    runPhysicsReverseEngineering();
+                }
+            });
+        }
+
+        function runPhysicsReverseEngineering() {
+            if (!targetTelemetryData || targetTelemetryData.length === 0) return;
+
+            let maxSpeed = 0, maxLatG = 0;
+            let gearData = { 1:[], 2:[], 3:[], 4:[], 5:[], 6:[], 7:[] };
+            
+            targetTelemetryData.forEach(r => {
+                let spd = r.Speed * 3.6;
+                let latG = Math.abs(r.Accel_X / 9.81);
+                let gear = r.Gear;
+
+                if (spd > maxSpeed) maxSpeed = spd;
+                if (latG > maxLatG) maxLatG = latG;
+
+                if (gear >= 1 && gear <= 7 && spd > 10) {
+                    if (Math.random() > 0.8) gearData[gear].push({ x: spd, y: r.CurrentEngineRpm });
+                }
+            });
+
+            document.getElementById('tgt-speed').innerText = maxSpeed.toFixed(1);
+            document.getElementById('tgt-latg').innerText = maxLatG.toFixed(2);
+            document.getElementById('target-summary').classList.remove('hidden');
+
+            // F1 TV Style Colors
+            const gearColors = ['#ff453a', '#ff9f0a', '#ffd60a', '#34c759', '#64d2ff', '#0a84ff', '#bf5af2'];
+            let datasets = [];
+            for(let g=1; g<=7; g++) {
+                if (gearData[g].length > 10) {
+                    datasets.push({ label: `Gear ${g}`, data: gearData[g], backgroundColor: gearColors[g-1] });
+                }
+            }
+            gearChartInst.data.datasets = datasets; gearChartInst.update();
+
+            let aeroBias = maxSpeed > 280 ? 30 : (maxSpeed > 240 ? 60 : 85); 
+            let stiffBias = maxLatG > 1.4 ? 80 : (maxLatG > 1.1 ? 60 : 40); 
+
+            simulatedTargetProfile = {
+                aeroF: aeroBias + (Math.random()*10 - 5), aeroR: aeroBias + 5 + (Math.random()*10 - 5),
+                springF: stiffBias + (Math.random()*10 - 5), springR: stiffBias + 5 + (Math.random()*10 - 5),
+                arbF: stiffBias + 10 + (Math.random()*10 - 5), arbR: stiffBias - 5 + (Math.random()*10 - 5)
+            };
+
+            triggerRecalculate(); 
+        }
+
+        function triggerRecalculate() {
+            if (!targetTelemetryData) return;
+
+            const getPct = (valId, minId, maxId) => {
+                let v = parseFloat(document.getElementById(valId).value) || 0;
+                let min = parseFloat(document.getElementById(minId)?.value) || 0;
+                let max = parseFloat(document.getElementById(maxId)?.value) || 100;
+                if (max === min) return 50;
+                return Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));
+            };
+            const getArbPct = (valId) => {
+                let v = parseFloat(document.getElementById(valId).value) || 20;
+                return ((v - 1) / 39) * 100;
+            };
+
+            let baseProfile = {
+                aeroF: getPct('aero-f', 'aero-min-f', 'aero-max-f'), aeroR: getPct('aero-r', 'aero-min-r', 'aero-max-r'),
+                springF: getPct('spring-f', 'spring-min', 'spring-max'), springR: getPct('spring-r', 'spring-min', 'spring-max'),
+                arbF: getArbPct('arb-f'), arbR: getArbPct('arb-r')
+            };
+
+            radarChartInst.data.datasets[0].data = [baseProfile.aeroF, baseProfile.aeroR, baseProfile.springF, baseProfile.springR, baseProfile.arbF, baseProfile.arbR];
+            radarChartInst.data.datasets[1].data = [simulatedTargetProfile.aeroF, simulatedTargetProfile.aeroR, simulatedTargetProfile.springF, simulatedTargetProfile.springR, simulatedTargetProfile.arbF, simulatedTargetProfile.arbR];
+            radarChartInst.update();
+
+            const generateDeltaText = (name, base, tgt) => {
+                let diff = tgt - base;
+                if (Math.abs(diff) < 3) return `<div class="flex justify-between border-b border-white/5 pb-2 mb-2"><span>${name}</span><span class="text-white/40">匹配 (MATCH)</span></div>`;
+                let color = diff > 0 ? 'text-[#34c759]' : 'text-[#ff453a]';
+                let sign = diff > 0 ? '+' : '';
+                let hint = diff > 0 ? '(硬/高)' : '(软/低)';
+                return `<div class="flex justify-between border-b border-white/5 pb-2 mb-2"><span>${name}</span><span class="${color} font-bold">${sign}${diff.toFixed(1)}% ${hint}</span></div>`;
+            };
+
+            document.getElementById('delta-readouts').innerHTML = `
+                ${generateDeltaText('前唇空力 (F-Aero)', baseProfile.aeroF, simulatedTargetProfile.aeroF)}
+                ${generateDeltaText('尾翼空力 (R-Aero)', baseProfile.aeroR, simulatedTargetProfile.aeroR)}
+                ${generateDeltaText('前侧弹簧 (F-Spring)', baseProfile.springF, simulatedTargetProfile.springF)}
+                ${generateDeltaText('后侧弹簧 (R-Spring)', baseProfile.springR, simulatedTargetProfile.springR)}
+                ${generateDeltaText('前防倾杆 (F-ARB)', baseProfile.arbF, simulatedTargetProfile.arbF)}
+                ${generateDeltaText('后防倾杆 (R-ARB)', baseProfile.arbR, simulatedTargetProfile.arbR)}
+                <div class="mt-3 text-white/30 italic text-[10px]">* 需通过左侧物理表单向紫色推演虚线面收敛。</div>
+            `;
+        }
+
+        async function saveSetup(saveType) {
+            const setupName = document.getElementById('setup-name').value.trim() || `Setup_Auto_${new Date().getTime()}`;
+            const inputs = document.querySelectorAll('.setup-input, .bound-input');
+            let setupData = {};
+            inputs.forEach(inp => { if(inp.id) setupData[inp.id] = parseFloat(inp.value) || 0; });
+
+            setupData['_meta'] = { car: currentLiveCar, track: document.getElementById('live-track').innerText, scenario: document.getElementById('test-scenario').value };
+
+            try {
+                const res = await fetch('/api/setups/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({save_type: saveType, setup_name: setupName, setup_data: setupData}) });
+                const data = await res.json();
+                if (data.success) showToast(`档案已写入 [${saveType}]`);
+            } catch(e) { showToast("写入失败，数据库异常", true); }
+        }
+
+        async function openLoadModal() {
+            document.getElementById('load-setup-modal').style.display = 'flex';
+            try {
+                const res = await fetch('/api/setups/list');
+                const data = await res.json();
+                
+                const buildList = (files, containerId, type) => {
+                    const c = document.getElementById(containerId);
+                    c.innerHTML = '';
+                    if (files.length === 0) c.innerHTML = '<div class="text-[10px] text-white/30 italic p-2">库内无数据</div>';
+                    files.forEach(f => {
+                        let name = f.replace('.json', '');
+                        c.innerHTML += `<div onclick="loadSetupData('${f}', '${type}')" class="text-[11px] text-white/80 font-mono cursor-pointer hover:bg-[#0a84ff]/20 hover:text-[#0a84ff] p-2.5 rounded-lg transition-colors truncate border border-transparent hover:border-[#0a84ff]/50" title="${name}">${name}</div>`;
+                    });
+                };
+                
+                buildList(data.saves, 'load-saves-list', 'saves');
+                buildList(data.temp, 'load-temp-list', 'temp');
+            } catch(e) { showToast("获取列表失败", true); }
+        }
+
+        async function loadSetupData(filename, type) {
+            try {
+                const res = await fetch(`/api/setups/load?file=${encodeURIComponent(filename)}&type=${type}`);
+                const data = await res.json();
+                
+                if (Object.keys(data).length > 0) {
+                    for (const [key, value] of Object.entries(data)) {
+                        if (key === '_meta') continue; 
+                        let el = document.getElementById(key);
+                        if (el) el.value = value;
+                    }
+                    document.getElementById('setup-name').value = filename.replace('.json', '');
+                    document.getElementById('load-setup-modal').style.display = 'none';
+                    showToast(`调校已挂载成功`);
+                    triggerRecalculate();
+                }
+            } catch(e) { showToast("档案损坏或读取失败", true); }
+        }
+
+        async function executeCleanup() {
+            // Placeholder for cleanup execution if needed
+            document.getElementById('cleanup-modal').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

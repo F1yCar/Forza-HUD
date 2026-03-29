@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Forza HUD Dash</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @supports (font: -apple-system-body) {
+            body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif; }
+        }
+        html, body { height: 100%; width: 100%; background-color: #000; color: #f5f5f7; overflow: hidden; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; position: fixed; }
+        
+        #bg-layer { position: absolute; inset: 0; z-index: -1; transition: background 0.3s ease, opacity 0.3s ease; background-color: #000; }
+        #main-overlay { height: 100%; width: 100%; position: absolute; top: 0; left: 0; z-index: 1; }
+        
+        .lcd { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+        
+        .apple-material { background: rgba(20, 20, 25, 0.75); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); border-radius: 16px; }
+        .apple-pill { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 9999px; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
+        .apple-pill:hover { background: rgba(255, 255, 255, 0.15); transform: scale(1.02); }
+
+        .pedal-box { width: 28px; height: 160px; background: rgba(255, 255, 255, 0.06); border-radius: 14px; position: relative; overflow: hidden; box-shadow: inset 0 2px 10px rgba(0,0,0,0.5); }
+        .pedal-fill { position: absolute; bottom: 0; width: 100%; transition: height 0.08s cubic-bezier(0.2, 0.8, 0.2, 1); border-radius: 14px; }
+        .accel-fill { background: linear-gradient(180deg, #34d399 0%, #10b981 100%); } 
+        .brake-fill { background: linear-gradient(180deg, #f87171 0%, #ef4444 100%); }
+
+        .tyre { width: 44px; height: 68px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; transition: all 0.4s ease; background: rgba(0,0,0,0.5); }
+        .tyre-val { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.95); text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
+
+        #rpm-bar-bg { background-color: rgba(255, 255, 255, 0.08); border-radius: 8px; overflow: hidden; } 
+        #rpm-bar { transition: width 0.05s linear, background-color 0.2s ease, box-shadow 0.2s ease; } 
+        
+        @keyframes pit-pulse { 0%, 100% { background: rgba(239, 68, 68, 0.9); box-shadow: 0 0 20px rgba(239, 68, 68, 0.5); } 50% { background: rgba(185, 28, 28, 0.9); box-shadow: 0 0 10px rgba(239, 68, 68, 0.2); } }
+        .pit-alert { animation: pit-pulse 1s infinite; color: white; border: 1px solid rgba(255,255,255,0.3); backdrop-filter: blur(10px); }
+        
+        @keyframes box-pulse { 0%, 100% { background: rgba(234, 179, 8, 0.9); color: black; box-shadow: 0 0 20px rgba(234, 179, 8, 0.4); } 50% { background: rgba(202, 138, 4, 0.9); color: black; } }
+        .box-alert { animation: box-pulse 1s infinite; border: 1px solid rgba(255,255,255,0.5); backdrop-filter: blur(10px); }
+        
+        .shift-blink { animation: shift-flash 0.1s infinite !important; }
+        @keyframes shift-flash { 0%, 100% { background: rgba(255,0,0,0.15); } 50% { background: transparent; } }
+
+        @keyframes pedal-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+        .flash-pedal { animation: pedal-blink 0.15s infinite; }
+
+        .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 999; align-items: center; justify-content: center; backdrop-filter: blur(8px); transition: opacity 0.3s; }
+        .modal-content { background: rgba(20, 20, 25, 0.95); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; width: 540px; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8); max-height: 85vh; display: flex; flex-direction: column; }
+        
+        .panel { position: absolute; background: rgba(20, 20, 25, 0.95); border: 1px solid rgba(255,255,255,0.1); padding: 15px; border-radius: 16px; display: none; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+        #settings-panel { bottom: 80px; right: 20px; width: 250px; z-index: 110; }
+        #telemetry-panel { top: 60px; right: 20px; width: 240px; z-index: 110; }
+
+        #debrief-drawer { background: rgba(15, 15, 18, 0.95); border-left: 1px solid rgba(255,255,255,0.08); box-shadow: -10px 0 30px rgba(0,0,0,0.5); }
+        
+        .toggle-switch input { display: none; }
+        .slider { width: 44px; height: 24px; background: rgba(255,255,255,0.15); border-radius: 24px; position: relative; transition: 0.3s; }
+        .slider::after { content: ''; position: absolute; width: 18px; height: 18px; background: #fff; border-radius: 50%; top: 3px; left: 3px; transition: 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        input:checked + .slider { background: #34c759; }
+        input:checked + .slider::after { transform: translateX(20px); }
+
+        .strat-input { background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 8px 12px; border-radius: 8px; outline: none; font-size: 13px; transition: all 0.2s; }
+        .strat-input:focus { border-color: #0ea5e9; background: rgba(0,0,0,0.7); }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+        
+        #character-container { position: absolute; bottom: 85px; left: 30px; width: 140px; pointer-events: none; opacity: 0.8; z-index: 5; }
+        #char-img { width: 100%; height: auto; transition: all 0.5s ease; }
+
+        #bg-car-number { opacity: 0.03; mix-blend-mode: overlay; z-index: 0; }
+        
+        body.light-theme { color: #111; }
+        body.light-theme .text-white { color: #111; }
+        body.light-theme .text-white\/40, body.light-theme .text-white\/60, body.light-theme .text-white\/30 { color: #555; }
+        body.light-theme .apple-material { background: rgba(250,250,250,0.85); border-color: rgba(0,0,0,0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
+        body.light-theme .apple-pill { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.1); }
+        body.light-theme .apple-pill:hover { background: rgba(0,0,0,0.1); }
+        body.light-theme .panel, body.light-theme .modal-content, body.light-theme #debrief-drawer { background: #fff; border-color: #ccc; }
+        body.light-theme .strat-input { background: #f0f0f0; border-color: #ccc; color: #111; }
+        body.light-theme #bg-car-number { opacity: 0.08; color: black; }
+    </style>
+</head>
+<body id="body-tag" class="select-none relative">
+    
+    <div id="bg-layer"></div>
+
+    <div id="main-overlay" class="p-8 flex flex-col justify-between">
+        <div id="bg-car-number" class="absolute inset-0 flex items-center justify-center pointer-events-none" style="display: none;">
+            <span id="bg-number-val" class="text-[40vw] font-black italic tracking-tighter leading-none text-white"></span>
+        </div>
+
+        <div class="relative z-50 flex justify-between items-center pb-2">
+            <div class="flex items-center gap-5 z-20">
+                <div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center border border-white/5 shadow-lg">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path></svg>
+                </div>
+                <div>
+                    <h1 class="text-base font-semibold text-white/90 tracking-wide">实时遥测 <span class="text-xs font-normal text-white/40 ml-1">Live</span></h1>
+                    <p id="track-name" class="text-xs font-medium text-white/40 mt-0.5 tracking-wider">等待赛道连接...</p>
+                </div>
+            </div>
+
+            <div id="broadcast-bug" class="absolute left-1/2 transform -translate-x-1/2 flex items-center bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl p-1 shadow-2xl transition-opacity duration-300 z-20">
+                <div class="px-5 py-2 flex flex-col items-center justify-center border-r border-white/10">
+                    <span class="text-[9px] font-bold text-white/40 uppercase tracking-widest mb-0.5">排名</span>
+                    <span id="pos-val" class="text-2xl font-bold lcd text-white leading-none tracking-tight">P-</span>
+                </div>
+                <div class="px-5 py-2 flex flex-col items-center justify-center">
+                    <span class="text-[9px] font-bold text-white/40 uppercase tracking-widest mb-0.5">圈数</span>
+                    <span id="lap-val" class="text-2xl font-bold lcd text-white leading-none tracking-tight">--</span>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-3 z-20">
+                <div id="pit-box" class="hidden px-4 py-1.5 rounded-full font-bold text-xs uppercase tracking-widest shadow-lg"></div>
+                <div id="mode" class="apple-pill px-4 py-2 text-[10px] font-bold text-white uppercase tracking-widest cursor-pointer" onclick="toggleTelemetry()">待机</div>
+                
+                <div class="apple-pill px-4 py-2 flex flex-col justify-center cursor-pointer group" onclick="openStrategyMenu()">
+                    <span class="text-[9px] font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/70 transition-colors">赛事策略</span>
+                    <span id="active-strategy" class="text-[11px] font-bold text-white/50 mt-0.5">无战术</span>
+                </div>
+                <div class="apple-pill px-4 py-2 flex flex-col justify-center cursor-pointer group" onclick="window.open('/setup', '_blank')">
+                    <span class="text-[9px] font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/70 transition-colors">车辆调校</span>
+                    <span class="text-[11px] font-bold text-white mt-0.5">Lab</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="telemetry-panel" class="panel top-[80px] right-8">
+            <p class="text-[11px] font-bold text-white/60 mb-4 uppercase tracking-widest">遥测中心控制</p>
+            <label class="toggle-switch">
+                <span class="text-[13px] font-medium text-white/90">记录遥测数据</span>
+                <input type="checkbox" id="chk-rec" onchange="sendConfigCmd('toggle_rec', this.checked)">
+                <div class="slider"></div>
+            </label>
+            <label class="toggle-switch">
+                <span class="text-[13px] font-medium text-white/90">自动保存最快圈</span>
+                <input type="checkbox" id="chk-save" onchange="sendConfigCmd('toggle_save', this.checked)">
+                <div class="slider"></div>
+            </label>
+        </div>
+
+        <div class="relative z-10 flex-1 flex items-center justify-between px-6">
+            <div class="flex gap-6 z-20">
+                <div class="flex flex-col items-center mt-6">
+                    <div class="pedal-box"><div id="brake-bar" class="pedal-fill brake-fill" style="height: 0%"></div></div>
+                    <span class="text-[10px] font-bold text-white/30 mt-3 uppercase tracking-widest">刹车</span>
+                </div>
+                <div class="flex flex-col items-center mt-6">
+                    <div class="pedal-box"><div id="accel-bar" class="pedal-fill accel-fill" style="height: 0%"></div></div>
+                    <span class="text-[10px] font-bold text-white/30 mt-3 uppercase tracking-widest">油门</span>
+                </div>
+            </div>
+            
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-0 mt-8">
+                <div class="absolute right-[calc(50%+9rem)] flex flex-col items-end pb-4">
+                    <div id="speed" class="text-[7.5rem] font-bold lcd leading-none tracking-tight text-white drop-shadow-lg" style="font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;">0</div>
+                    <div class="text-lg font-bold text-white/40 tracking-widest mt-1">KM/H</div>
+                </div>
+                <div id="gear" class="text-[16rem] font-bold lcd leading-none text-white drop-shadow-2xl" style="font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;">N</div>
+            </div>
+            
+            <div class="flex flex-col gap-6 z-20">
+                <div class="apple-material p-5 w-72">
+                    <div class="flex justify-between items-end border-b border-white/10 pb-2.5 mb-2.5 cursor-pointer group" onclick="openReplayMenu()">
+                        <span class="text-[10px] font-semibold text-white/40 uppercase tracking-widest group-hover:text-white transition-colors">个人最佳 <span class="ml-1 opacity-50">PB</span></span>
+                        <span id="lap-hist" class="text-lg font-bold lcd text-white/80">--:--.---</span>
+                    </div>
+                    <div class="flex justify-between items-end gap-4 mb-2">
+                        <span class="text-[10px] font-semibold text-white/40 uppercase tracking-widest">理论极限</span>
+                        <span id="lap-opt" class="text-sm font-semibold text-[#ff375f] lcd">--:--.---</span>
+                    </div>
+                    <div class="flex justify-between items-end gap-4 mb-2">
+                        <span class="text-[10px] font-semibold text-white/40 uppercase tracking-widest">本场最快</span>
+                        <span id="lap-best" class="text-base font-bold text-[#bf5af2] lcd">--:--.---</span>
+                    </div>
+                    <div class="flex justify-between items-end gap-4 mb-3">
+                        <span class="text-[10px] font-semibold text-white/40 uppercase tracking-widest">当前圈速</span>
+                        <span id="lap-curr" class="text-xl font-bold text-white lcd">--:--.---</span>
+                    </div>
+                    <div class="flex justify-between items-center gap-4 pt-3 border-t border-white/10">
+                        <span class="text-[10px] font-bold text-white/30 uppercase tracking-widest">差值 Delta</span>
+                        <span id="lap-delta" class="text-3xl font-light lcd text-white/50">--</span>
+                    </div>
+                </div>
+
+                <div class="apple-material p-4 w-72 flex flex-col items-center relative overflow-hidden">
+                    <div id="current-tire-badge" class="absolute top-0 right-0 bg-white/10 text-white text-[9px] font-bold px-3 py-1 rounded-bl-lg uppercase tracking-widest hidden"></div>
+                    <p class="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-3 self-start">轮胎工况</p>
+                    <div class="grid grid-cols-2 gap-x-10 gap-y-4 w-full px-2">
+                        <div class="flex flex-col items-center">
+                            <div id="t-fl" class="tyre shadow-inner"><span id="v-fl" class="tyre-val">--</span></div>
+                            <div id="w-fl" class="text-[10px] font-bold text-white/40 mt-1.5 lcd">0%</div>
+                        </div>
+                        <div class="flex flex-col items-center">
+                            <div id="t-fr" class="tyre shadow-inner"><span id="v-fr" class="tyre-val">--</span></div>
+                            <div id="w-fr" class="text-[10px] font-bold text-white/40 mt-1.5 lcd">0%</div>
+                        </div>
+                        <div class="flex flex-col items-center">
+                            <div id="t-rl" class="tyre shadow-inner"><span id="v-rl" class="tyre-val">--</span></div>
+                            <div id="w-rl" class="text-[10px] font-bold text-white/40 mt-1.5 lcd">0%</div>
+                        </div>
+                        <div class="flex flex-col items-center">
+                            <div id="t-rr" class="tyre shadow-inner"><span id="v-rr" class="tyre-val">--</span></div>
+                            <div id="w-rr" class="text-[10px] font-bold text-white/40 mt-1.5 lcd">0%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="relative z-50 flex justify-between items-center pt-6 px-4 pb-6">
+            <div class="flex flex-col min-w-[80px]">
+                <span class="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-1">燃油</span>
+                <div class="flex items-baseline gap-2">
+                    <span id="fuel" class="text-3xl font-bold lcd text-white">--%</span>
+                </div>
+            </div>
+            
+            <div class="flex-1 flex flex-col justify-center mx-10 mt-2">
+                <div id="rpm-bar-bg" class="h-1.5 w-full bg-white/10 rounded-full">
+                    <div id="rpm-bar" class="h-full bg-white rounded-full" style="width: 0%"></div>
+                </div>
+                <div class="flex justify-between mt-2">
+                    <span id="rem-laps" class="text-[10px] font-semibold text-white/40 uppercase tracking-widest">测算中...</span>
+                    <span id="car-name" class="text-[10px] font-semibold text-white/60 uppercase tracking-widest">---</span>
+                </div>
+            </div>
+            
+            <button id="rpm-val" class="text-4xl font-bold lcd text-white/60 hover:text-white transition-colors bg-transparent border-none p-0 focus:outline-none z-10 cursor-pointer text-right min-w-[100px]" onclick="toggleSettings()">0</button>
+            
+            <div id="settings-panel" class="panel bottom-[80px] right-8">
+                <p class="text-[11px] font-bold text-white/60 mb-4 uppercase tracking-widest border-b border-white/10 pb-2">系统设置</p>
+                <div class="mb-4 grid grid-cols-2 gap-2">
+                    <button class="strat-input hover:bg-white/10" onclick="setBg('none')">纯黑</button>
+                    <button class="strat-input hover:bg-white/10" onclick="setBg('dark gray')">深灰</button>
+                    <button class="strat-input hover:bg-white/10" onclick="setBg('carbon')">碳纤维</button>
+                    <button class="strat-input bg-white text-black font-semibold hover:bg-gray-200" onclick="setBg('light')">明亮</button>
+                    <button class="col-span-2 mt-2 bg-[#007aff] hover:bg-[#0056b3] text-white rounded-lg py-2 text-xs font-semibold transition-colors" onclick="openMappingMenu()">修正数据库</button>
+                </div>
+                <div class="mb-4">
+                    <p class="text-[10px] font-semibold text-white/40 mb-1.5 uppercase tracking-widest">专属车号水印</p>
+                    <input type="text" id="driver-number-input" class="strat-input w-full text-center font-bold text-white" placeholder="留空隐藏" oninput="setDriverNumber(this.value)" maxlength="4">
+                </div>
+                <div><p class="text-[10px] font-semibold text-white/40 mb-1.5 uppercase tracking-widest">背景不透明度</p><input type="range" min="0" max="100" value="100" class="w-full h-1 bg-white/20 rounded-full appearance-none" oninput="setOpacity(this.value)"></div>
+            </div>
+            
+            <div id="character-container"><img id="char-img" src="黑high.png" alt="" onerror="this.style.display='none'"></div>
+        </div>
+    </div>
+
+    <div id="debrief-drawer" class="fixed right-0 top-0 h-full w-[380px] transform translate-x-full transition-transform duration-500 cubic-bezier(0.2, 0.8, 0.2, 1) z-[9999] flex flex-col">
+        <div class="p-6 border-b border-white/5 flex justify-between items-center pt-10">
+            <div>
+                <h2 class="text-lg font-bold text-white tracking-tight">赛后复盘</h2>
+                <p class="text-[11px] text-white/40 uppercase tracking-widest mt-1">多维度物理诊断</p>
+            </div>
+            <button onclick="closeDebrief()" class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <div id="debrief-content" class="flex-1 overflow-y-auto p-6 space-y-5 custom-scrollbar"></div>
+        <div class="p-6 pb-10">
+            <button onclick="closeDebrief()" class="w-full bg-white text-black font-bold rounded-xl py-3.5 text-[13px] hover:scale-[1.02] transition-transform">归档报告</button>
+        </div>
+    </div>
+
+    <div id="strategy-modal" class="modal-bg">
+        <div class="modal-content">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 class="text-xl font-bold text-white tracking-tight">赛事策略</h2>
+                    <p id="strategy-modal-track" class="text-[11px] text-white/40 uppercase tracking-widest mt-1">等待赛道</p>
+                </div>
+                <button onclick="document.getElementById('strategy-modal').style.display='none'" class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all">&times;</button>
+            </div>
+            
+            <div class="flex flex-col gap-6 flex-1 overflow-hidden">
+                <div>
+                    <div class="flex justify-between items-end mb-3">
+                        <h3 class="text-[11px] font-semibold text-white/50 uppercase tracking-widest">已存方案</h3>
+                        <button onclick="clearActiveStrategy()" class="text-[10px] text-[#ff453a] font-bold uppercase tracking-widest hover:text-[#ff6961]">清空当前战术</button>
+                    </div>
+                    <div id="strategy-list-container" class="flex flex-col gap-2 custom-scrollbar max-h-40 overflow-y-auto pr-2"></div>
+                </div>
+
+                <div class="bg-white/5 border border-white/10 rounded-xl p-5">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-[11px] font-semibold text-[#0ea5e9] uppercase tracking-widest">新建排兵布阵</h3>
+                    </div>
+                    
+                    <div class="flex gap-4 mb-5">
+                        <div class="flex-1">
+                            <label class="text-[10px] font-medium text-white/40 block mb-2 uppercase tracking-wider">赛事模式</label>
+                            <select id="strat-mode" class="strat-input w-full bg-black/50" onchange="toggleStratMode()">
+                                <option value="race" selected>正赛 (Race)</option>
+                                <option value="practice">练习赛 (Practice)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="race-config" class="flex flex-col">
+                        <div class="flex gap-4 mb-5">
+                            <div class="flex-1">
+                                <label class="text-[10px] font-medium text-white/40 block mb-2 uppercase tracking-wider">总圈数</label>
+                                <input type="number" id="strat-laps" class="strat-input w-full bg-black/50" value="20" min="1">
+                            </div>
+                            <div class="flex-1">
+                                <label class="text-[10px] font-medium text-white/40 block mb-2 uppercase tracking-wider">进站次数</label>
+                                <select id="strat-stops" class="strat-input w-full bg-black/50" onchange="renderStintForm()">
+                                    <option value="0">0 停 (1 Stint)</option>
+                                    <option value="1" selected>1 停 (2 Stint)</option>
+                                    <option value="2">2 停 (3 Stint)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="stints-container" class="flex flex-col gap-2 mb-5"></div>
+                    </div>
+
+                    <div id="practice-config" class="hidden flex-col gap-2 mb-5">
+                        <label class="text-[10px] font-medium text-white/40 block mb-2 uppercase tracking-wider">测试轮胎配方</label>
+                        <select id="practice-tire" class="strat-input w-full bg-black/50">
+                            <option value="软胎 (Soft)" class="text-[#ff453a]">软胎 (S)</option>
+                            <option value="中性胎 (Medium)" class="text-[#ffd60a]" selected>中性胎 (M)</option>
+                            <option value="硬胎 (Hard)" class="text-white">硬胎 (H)</option>
+                            <option value="半雨胎 (Inters)" class="text-[#32d74b]">半雨胎 (I)</option>
+                            <option value="全雨胎 (Wet)" class="text-[#0a84ff]">全雨胎 (W)</option>
+                        </select>
+                    </div>
+
+                    <button onclick="saveNewStrategy()" class="w-full bg-[#007aff] text-white font-bold rounded-lg py-3 text-[13px] hover:bg-[#0056b3] transition-colors">部署策略</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="replay-modal" class="modal-bg">
+        <div class="modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-white tracking-tight">历史记录</h2>
+                <button onclick="document.getElementById('replay-modal').style.display='none'" class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all">&times;</button>
+            </div>
+            <div class="flex-1 overflow-y-auto custom-scrollbar pr-2" id="file-list-container"></div>
+        </div>
+    </div>
+
+    <div id="mapping-modal" class="modal-bg">
+        <div class="modal-content" style="width: 480px;">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-lg font-bold text-white tracking-tight">数据库校准</h2>
+                <button onclick="document.getElementById('mapping-modal').style.display='none'" class="text-white/50 hover:text-white">&times;</button>
+            </div>
+            <div class="space-y-4">
+                <div class="bg-white/5 rounded-xl p-4 border border-white/5">
+                    <p class="text-[10px] text-white/40 uppercase tracking-widest mb-3">更新当前车辆</p>
+                    <div class="flex gap-2"><input type="text" id="map-car-id" class="strat-input w-20 text-white/40" readonly><input type="text" id="map-car-name" class="strat-input flex-1" placeholder="填入真实车名"><button onclick="saveMapping('car')" class="bg-white text-black font-bold px-4 rounded-lg text-xs">保存</button></div>
+                </div>
+                <div class="bg-white/5 rounded-xl p-4 border border-white/5">
+                    <p class="text-[10px] text-white/40 uppercase tracking-widest mb-3">更新当前赛道</p>
+                    <div class="flex gap-2"><input type="text" id="map-track-id" class="strat-input w-20 text-white/40" readonly><input type="text" id="map-track-name" class="strat-input flex-1" placeholder="填入真实赛道"><button onclick="saveMapping('track')" class="bg-white text-black font-bold px-4 rounded-lg text-xs">保存</button></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="ghost-modal" class="fixed top-8 right-8 z-[1000] hidden">
+        <div class="apple-material p-5 w-80">
+            <h2 class="text-[11px] font-bold text-[#ff9f0a] mb-2 uppercase tracking-widest flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-[#ff9f0a] animate-pulse"></span> 刷新最快圈</h2>
+            <p class="text-[13px] text-white/80 font-medium leading-relaxed">系统在未录制状态下捕获了最快圈 <span id="ghost-time" class="text-white font-bold bg-white/10 px-1.5 py-0.5 rounded lcd"></span>。</p>
+            <div class="flex gap-2 mt-4">
+                <button onclick="resolveGhost(true)" class="flex-1 bg-white text-black font-semibold rounded-lg py-2 text-xs">归档保存</button>
+                <button onclick="resolveGhost(false)" class="flex-1 bg-white/10 text-white hover:bg-white/20 font-medium rounded-lg py-2 text-xs">直接丢弃</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ws = new WebSocket(`ws://${window.location.host}/ws`);
+        const modeBtn = document.getElementById('mode');
+        const bodyTag = document.getElementById('body-tag');
+        const charImg = document.getElementById('char-img');
+        
+        let currentCarId = 0, currentTrackId = 0, currentMode = "FM", currentTrackName = "";
+        let trackStrategies = [], activeStrategy = null, configToggleLock = false, isDebriefOpen = false;
+
+        function sendConfigCmd(cmd, val) { configToggleLock = true; if (ws.readyState === 1) ws.send(JSON.stringify({ cmd: cmd, val: val })); setTimeout(() => { configToggleLock = false; }, 1000); }
+        function setDriverNumber(num) { const b = document.getElementById('bg-car-number'); if(num && num.trim()!==''){ document.getElementById('bg-number-val').innerText=num.trim(); b.style.display='flex'; } else { b.style.display='none'; } localStorage.setItem('dash_driver_number', num); }
+        function getTColor(t) { if (t > 120) return 'rgba(255,69,58,0.3)'; if (t < 80) return 'rgba(10,132,255,0.3)'; return 'rgba(48,209,88,0.2)'; }
+        function getTColorBorder(t) { if (t > 120) return '#ff453a'; if (t < 80) return '#0a84ff'; return '#30d158'; }
+        function sendCmd(cmd, val) { if (ws.readyState === 1) ws.send(JSON.stringify({ cmd: cmd, val: val })); }
+        function sendPayloadCmd(cmd, payload) { if (ws.readyState === 1) ws.send(JSON.stringify({ cmd: cmd, payload: payload })); }
+        function resolveGhost(keep) { sendCmd("resolve_ghost", keep); document.getElementById('ghost-modal').style.display = 'none'; }
+
+        async function fetchStrategies(track) {
+            if (!track || track === "等待连接..." || track === "FH5_FreeRoam") return;
+            try {
+                const res = await fetch('/api/strategy/' + encodeURIComponent(track));
+                const data = await res.json();
+                trackStrategies = data.strategies || [];
+                activeStrategy = trackStrategies.length > 0 ? trackStrategies[trackStrategies.length - 1] : null;
+                updateStrategyDashboard();
+            } catch(e) {}
+        }
+
+        function clearActiveStrategy() { activeStrategy = null; sendCmd("set_active_strategy", null); updateStrategyDashboard(); document.getElementById('strategy-modal').style.display = 'none'; }
+
+        function updateStrategyDashboard() {
+            const el = document.getElementById('active-strategy');
+            const centerBug = document.getElementById('broadcast-bug');
+            if (!activeStrategy) { 
+                el.innerText = "无战术"; el.className = "text-[11px] font-bold text-white/50 mt-0.5"; 
+                centerBug.style.opacity = '1';
+            } else { 
+                el.innerText = formatStrategyPreview(activeStrategy); el.className = "text-[11px] font-bold text-[#34c759] mt-0.5"; 
+                if (activeStrategy.mode === 'practice') {
+                    centerBug.style.opacity = '0';
+                } else {
+                    centerBug.style.opacity = '1';
+                }
+            }
+        }
+
+        function formatStrategyPreview(s) {
+            if (s.mode === 'practice') return `练习赛 / ${s.tire.split(' ')[0]}`;
+            let str = `${s.total_laps}圈 / ${s.stops}停: `;
+            s.stints.forEach((st, i) => { str += `${st.tire.includes('软')?'S':st.tire.includes('硬')?'H':st.tire.includes('全')?'W':st.tire.includes('半')?'I':'M'}(${st.laps})` + (i<s.stints.length-1?' › ':''); });
+            return str;
+        }
+
+        function toggleStratMode() {
+            const mode = document.getElementById('strat-mode').value;
+            if (mode === 'practice') {
+                document.getElementById('race-config').classList.add('hidden');
+                document.getElementById('practice-config').classList.remove('hidden');
+                document.getElementById('practice-config').classList.add('flex');
+            } else {
+                document.getElementById('race-config').classList.remove('hidden');
+                document.getElementById('practice-config').classList.add('hidden');
+                document.getElementById('practice-config').classList.remove('flex');
+            }
+        }
+
+        function openStrategyMenu() {
+            if (!currentTrackName || currentTrackName.includes("等待")) return alert("请先进入赛道环境以挂载遥测。");
+            document.getElementById('strategy-modal-track').innerText = currentTrackName;
+            document.getElementById('strategy-modal').style.display = 'flex';
+            toggleStratMode(); renderStintForm();
+            const listEl = document.getElementById('strategy-list-container');
+            if (trackStrategies.length === 0) { listEl.innerHTML = '<p class="text-[12px] text-white/30 py-2">暂无该赛道的历史配置。</p>'; } 
+            else {
+                listEl.innerHTML = '';
+                trackStrategies.forEach((s, idx) => {
+                    let isActive = activeStrategy && JSON.stringify(s) === JSON.stringify(activeStrategy);
+                    let activeTag = isActive ? '<span class="bg-[#34c759] text-black text-[9px] font-bold px-2 py-0.5 rounded-full uppercase">执行中</span>' : `<span class="border border-white/20 text-white/50 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase">方案 ${idx+1}</span>`;
+                    listEl.innerHTML += `
+                        <div class="bg-white/5 border border-white/5 p-3 rounded-xl flex justify-between items-center hover:bg-white/10 transition-colors cursor-pointer group/item" onclick="selectStrategy(${idx})">
+                            <span class="text-[13px] font-medium text-white">${formatStrategyPreview(s)}</span>
+                            <div class="flex items-center gap-3">${activeTag}
+                                <button onclick="deleteStrategy(event, ${idx})" class="text-white/30 hover:text-[#ff453a] opacity-0 group-hover/item:opacity-100"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                            </div>
+                        </div>`;
+                });
+            }
+        }
+
+        function selectStrategy(index) { activeStrategy = trackStrategies[index]; sendCmd("set_active_strategy", activeStrategy); updateStrategyDashboard(); document.getElementById('strategy-modal').style.display = 'none'; }
+        async function deleteStrategy(event, index) { event.stopPropagation(); if(!confirm(`彻底销毁此方案？`)) return; try { await fetch(`/api/strategy/${encodeURIComponent(currentTrackName)}/${index}`, { method: 'DELETE' }); if (activeStrategy && JSON.stringify(trackStrategies[index]) === JSON.stringify(activeStrategy)) clearActiveStrategy(); await fetchStrategies(currentTrackName); openStrategyMenu(); } catch(e) {} }
+
+        function renderStintForm() {
+            const stops = parseInt(document.getElementById('strat-stops').value), container = document.getElementById('stints-container'); container.innerHTML = '';
+            for(let i=0; i<=stops; i++) {
+                container.innerHTML += `
+                    <div class="flex gap-3 items-center bg-black/40 p-2 rounded-lg border border-white/5">
+                        <span class="text-[10px] text-white/50 font-bold uppercase w-12 tracking-wider text-center">阶段 ${i+1}</span>
+                        <select class="strat-tire strat-input flex-1 bg-transparent border-none">
+                            <option value="软胎 (Soft)" class="text-[#ff453a]">软胎 (S)</option><option value="中性胎 (Medium)" class="text-[#ffd60a]" selected>中性胎 (M)</option><option value="硬胎 (Hard)" class="text-white">硬胎 (H)</option><option value="半雨胎 (Inters)" class="text-[#32d74b]">半雨胎 (I)</option><option value="全雨胎 (Wet)" class="text-[#0a84ff]">全雨胎 (W)</option>
+                        </select>
+                        <input type="number" class="strat-stint-laps strat-input w-20 text-center bg-black/50" placeholder="圈数" min="1">
+                    </div>`;
+            }
+        }
+
+        async function saveNewStrategy() {
+            const mode = document.getElementById('strat-mode').value;
+            let payload = {};
+            if (mode === 'practice') {
+                payload = { mode: 'practice', tire: document.getElementById('practice-tire').value };
+            } else {
+                const laps = parseInt(document.getElementById('strat-laps').value), stops = parseInt(document.getElementById('strat-stops').value);
+                let stints = [], totalStintLaps = 0;
+                document.querySelectorAll('.strat-stint-laps').forEach((el, i) => { let sl = parseInt(el.value)||0; totalStintLaps+=sl; stints.push({ tire: document.querySelectorAll('.strat-tire')[i].value, laps: sl }); });
+                if (totalStintLaps !== laps && !confirm(`各阶段圈数总和(${totalStintLaps})与赛事总圈数(${laps})不符，强制部署？`)) return;
+                payload = { mode: 'race', total_laps: laps, stops: stops, stints: stints };
+            }
+            try { await fetch('/api/strategy/' + encodeURIComponent(currentTrackName), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); document.getElementById('strategy-modal').style.display = 'none'; await fetchStrategies(currentTrackName); activeStrategy = payload; sendCmd("set_active_strategy", activeStrategy); updateStrategyDashboard(); } catch(e) {}
+        }
+
+        function openMappingMenu() { document.getElementById('settings-panel').style.display = 'none'; document.getElementById('mapping-modal').style.display = 'flex'; document.getElementById('map-car-id').value = currentCarId; document.getElementById('map-track-id').value = currentTrackId; }
+        function saveMapping(type) { const id = document.getElementById(`map-${type}-id`).value, name = document.getElementById(`map-${type}-name`).value; if (!name) return; sendPayloadCmd("update_mapping", { type: type, id: id, name: name, game: currentMode }); document.getElementById('mapping-modal').style.display = 'none'; }
+
+        async function openReplayMenu() {
+            document.getElementById('replay-modal').style.display = 'flex'; const container = document.getElementById('file-list-container'); container.innerHTML = '<p class="text-[12px] text-white/30 mt-4 text-center">提取记录中...</p>';
+            try {
+                const res = await fetch('/api/laps'); const data = await res.json();
+                if (data.files.length === 0) { container.innerHTML = '<p class="text-[12px] text-white/30 mt-4 text-center">暂无遥测数据落盘。</p>'; return; }
+                container.innerHTML = '';
+                data.files.forEach(file => {
+                    let parts = file.split(/[/\\]/); let fileName = parts.pop(); let timeStr = fileName.replace('.csv', '');
+                    let tag = '<span class="text-[9px] text-[#0ea5e9] font-bold border border-[#0ea5e9]/50 px-1.5 rounded uppercase tracking-widest">赛道最快</span>';
+                    if (timeStr.includes('RACE_')) { timeStr = timeStr.replace('RACE_', ''); tag = '<span class="text-[9px] text-black bg-[#ffd60a] font-bold px-1.5 rounded uppercase tracking-widest">正赛全场</span>'; } 
+                    else if (timeStr.includes('_LastBest')) { timeStr = timeStr.replace('_LastBest', ''); tag = '<span class="text-[9px] text-white/40 font-medium uppercase tracking-widest border border-white/20 px-1.5 rounded">前任最佳</span>'; } 
+                    else if (timeStr.includes('_Legacy')) { timeStr = timeStr.replace('_Legacy', ''); tag = '<span class="text-[9px] text-white/20 font-medium uppercase tracking-widest border border-white/10 px-1.5 rounded">已归档</span>'; }
+                    
+                    // 核心追加：销毁按钮 HTML
+                    container.innerHTML += `
+                        <div class="file-item group p-3 border-b border-white/5 flex justify-between items-center hover:bg-white/5 transition-colors cursor-pointer" onclick="window.open('/replay?file=${encodeURIComponent(file)}', '_blank')">
+                            <div class="flex flex-col">
+                                <span class="text-[10px] font-medium text-white/40 mb-1 tracking-wider">${parts.join(' / ')}</span>
+                                <div class="flex items-center gap-3"><span class="text-base font-bold text-white tracking-tight">${timeStr}</span>${tag}</div>
+                            </div>
+                            <button onclick="deleteLapRecord(event, '${file}')" class="text-white/30 hover:text-[#ff453a] opacity-0 group-hover:opacity-100 transition-opacity p-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            </button>
+                        </div>`;
+                });
+            } catch (e) { container.innerHTML = '<p class="text-[12px] text-[#ff453a] mt-4 text-center">数据库连接失败。</p>'; }
+        }
+
+        // 核心追加：主驾驶舱直接销毁档案
+        async function deleteLapRecord(event, file) {
+            event.stopPropagation();
+            if (!confirm('警告：此操作将永久销毁该遥测物理档案，无法恢复。确认执行？')) return;
+            try {
+                const res = await fetch('/api/laps', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: file })
+                });
+                if (res.ok) openReplayMenu(); // 直接静默刷新列表
+            } catch (e) {
+                alert('销毁失败，数据库通道可能被占用。');
+            }
+        }
+
+        function renderDebrief(reports) {
+            const container = document.getElementById('debrief-content'); container.innerHTML = '';
+            reports.forEach(r => {
+                let isPerfect = r.level === 'perfect'; let isWarn = r.level === 'warning';
+                let accentColor = isPerfect ? '#34c759' : isWarn ? '#ff9f0a' : '#ff453a';
+                let icon = isPerfect ? `<svg class="w-4 h-4 text-[#34c759]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>` : 
+                           isWarn ? `<svg class="w-4 h-4 text-[#ff9f0a]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>` : 
+                           `<svg class="w-4 h-4 text-[#ff453a]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
+                
+                container.innerHTML += `
+                    <div class="bg-white/5 border border-white/5 rounded-2xl p-4 shadow-sm relative overflow-hidden">
+                        <div class="absolute left-0 top-0 bottom-0 w-1 opacity-50" style="background-color: ${accentColor}"></div>
+                        <h3 class="text-[13px] font-bold text-white flex items-center gap-2 mb-2 ml-1">${icon} ${r.title}</h3>
+                        <p class="text-[12px] text-white/70 mb-4 ml-1 leading-relaxed">${r.phys}</p>
+                        <div class="space-y-3 bg-black/40 rounded-xl p-3 border border-white/5 ml-1">
+                            <div>
+                                <span class="text-[9px] font-bold text-[#0a84ff] uppercase tracking-widest block mb-1">调校指令</span>
+                                <p class="text-[11px] text-white/60 leading-relaxed">${r.setup}</p>
+                            </div>
+                            <div>
+                                <span class="text-[9px] font-bold text-[#bf5af2] uppercase tracking-widest block mb-1">车手指令</span>
+                                <p class="text-[11px] text-white/60 leading-relaxed">${r.driver}</p>
+                            </div>
+                        </div>
+                    </div>`;
+            });
+            document.getElementById('debrief-drawer').classList.remove('translate-x-full'); isDebriefOpen = true;
+        }
+
+        function closeDebrief() { document.getElementById('debrief-drawer').classList.add('translate-x-full'); isDebriefOpen = false; sendCmd("clear_debrief", true); }
+
+        ws.onmessage = (event) => {
+            try {
+                const d = JSON.parse(event.data);
+                currentCarId = d.CarID; currentTrackId = d.TrackID; currentMode = d.Mode;
+
+                if (d.Track !== currentTrackName && d.Track !== "等待连接...") { currentTrackName = d.Track; fetchStrategies(currentTrackName); }
+                if (!configToggleLock) { if (d.IsRec !== undefined) document.getElementById('chk-rec').checked = d.IsRec; if (d.AutoSave !== undefined) document.getElementById('chk-save').checked = d.AutoSave; }
+                if (d.Debrief && !isDebriefOpen) renderDebrief(d.Debrief);
+
+                if (d.GhostLap && document.getElementById('ghost-modal').style.display === 'none') { document.getElementById('ghost-time').innerText = d.GhostLap.time; document.getElementById('ghost-modal').style.display = 'block'; } 
+                else if (!d.GhostLap) { document.getElementById('ghost-modal').style.display = 'none'; }
+
+                if (d.IsRaceOn === 0) { modeBtn.innerText = "离线"; modeBtn.className = "apple-pill px-4 py-2 text-[10px] font-bold text-white/30 uppercase tracking-widest cursor-pointer"; } 
+                else {
+                    modeBtn.innerText = d.Mode;
+                    modeBtn.className = d.IsRec ? "apple-pill px-4 py-2 text-[10px] font-bold text-white uppercase tracking-widest cursor-pointer bg-[#ff453a]/80 border-[#ff453a]" : "apple-pill px-4 py-2 text-[10px] font-bold text-[#0a84ff] uppercase tracking-widest cursor-pointer bg-[#0a84ff]/20 border-[#0a84ff]/40";
+                }
+
+                if (activeStrategy && activeStrategy.mode !== 'practice') {
+                    document.getElementById('pos-val').innerText = d.Position > 0 ? "P" + d.Position : "P-";
+                    document.getElementById('lap-val').innerHTML = activeStrategy && activeStrategy.total_laps ? `${d.Lap}<span class="text-[14px] text-white/40 font-bold ml-1">/${activeStrategy.total_laps}</span>` : d.Lap;
+                }
+                
+                document.getElementById('gear').innerText = d.Gear;
+                document.getElementById('speed').innerText = d.Speed;
+                document.getElementById('rpm-val').innerText = d.RPM;
+                document.getElementById('fuel').innerText = d.Fuel + "%";
+                document.getElementById('car-name').innerText = d.Car;
+                document.getElementById('track-name').innerText = d.Track;
+                
+                document.getElementById('lap-curr').innerText = d.CurrentLap; document.getElementById('lap-best').innerText = d.BestLap;
+                document.getElementById('lap-hist').innerText = d.HistBestLap; document.getElementById('lap-opt').innerText = d.OptimalLap;
+                document.getElementById('rem-laps').innerText = d.RemLaps >= 99 ? "预计: 测算中" : "预计剩余: " + d.RemLaps + " 圈";
+
+                if (d.Delta) {
+                    const de = document.getElementById('lap-delta'); de.innerText = d.Delta;
+                    if (d.Delta.includes("-")) de.className = "text-4xl font-semibold lcd text-[#34c759]";
+                    else if (d.Delta.includes("+")) de.className = "text-4xl font-medium lcd text-[#ff453a]";
+                    else de.className = "text-3xl font-light lcd text-white/50";
+                }
+
+                document.getElementById('accel-bar').style.height = d.Accel + "%"; document.getElementById('brake-bar').style.height = d.Brake + "%";
+
+                let isBox = false;
+                if (activeStrategy && activeStrategy.mode !== 'practice' && activeStrategy.stints && activeStrategy.stints.length > 1) {
+                    let accLaps = 0;
+                    for (let i=0; i<activeStrategy.stints.length-1; i++) { accLaps += parseInt(activeStrategy.stints[i].laps); if (d.Lap === accLaps) { isBox = true; break; } }
+                }
+
+                const pb = document.getElementById('pit-box');
+                if (isBox) { pb.innerText = "BOX BOX"; pb.className = "px-5 py-1.5 rounded-full font-bold text-xs uppercase tracking-widest shadow-lg box-alert"; pb.style.display = "block"; } 
+                else if (d.Pit) { pb.innerText = "PIT NOW"; pb.className = "px-5 py-1.5 rounded-full font-bold text-xs uppercase tracking-widest shadow-lg pit-alert"; pb.style.display = "block"; } 
+                else { pb.style.display = "none"; }
+
+                if (d.ShiftNow) bodyTag.classList.add('shift-blink'); else bodyTag.classList.remove('shift-blink');
+                
+                if (d.FrontSlip) document.getElementById('brake-bar').classList.add('flash-pedal'); else document.getElementById('brake-bar').classList.remove('flash-pedal');
+                if (d.RearSlip) document.getElementById('accel-bar').classList.add('flash-pedal'); else document.getElementById('accel-bar').classList.remove('flash-pedal');
+
+                if (activeStrategy) {
+                    let cTire = "";
+                    if (activeStrategy.mode === 'practice') {
+                        cTire = activeStrategy.tire;
+                    } else if (activeStrategy.stints && activeStrategy.stints.length > 0) {
+                        let sStart = 1;
+                        for (let i=0; i<activeStrategy.stints.length; i++) { let sEnd = sStart + parseInt(activeStrategy.stints[i].laps); if (d.Lap >= sStart && d.Lap < sEnd) { cTire = activeStrategy.stints[i].tire; break; } sStart = sEnd; }
+                        if (!cTire) cTire = activeStrategy.stints[activeStrategy.stints.length-1].tire;
+                    }
+                    if (cTire) {
+                        const bdg = document.getElementById('current-tire-badge'); bdg.innerText = cTire.split(' ')[0]; bdg.classList.remove('hidden');
+                        if (cTire.includes('软')) bdg.style.background = '#ff453a'; else if (cTire.includes('中')) bdg.style.background = '#ffd60a'; else if (cTire.includes('硬')) { bdg.style.background = '#ffffff'; bdg.style.color = 'black'; } else bdg.style.background = '#0a84ff';
+                    }
+                } else { document.getElementById('current-tire-badge').classList.add('hidden'); }
+
+                ['fl', 'fr', 'rl', 'rr'].forEach(p => {
+                    const temp = d.Temps[p], wear = d.Wears[p];
+                    document.getElementById('v-' + p).innerText = temp + "°";
+                    document.getElementById('t-' + p).style.backgroundColor = getTColor(temp);
+                    document.getElementById('t-' + p).style.borderColor = getTColorBorder(temp);
+                    document.getElementById('w-' + p).innerText = wear + "%";
+                    document.getElementById('w-' + p).style.color = wear > 65 ? '#ff453a' : 'rgba(255,255,255,0.4)';
+                });
+
+                const rpmBar = document.getElementById('rpm-bar'), pct = (d.RPM / d.MaxRPM) * 100;
+                rpmBar.style.width = Math.min(pct, 100) + "%";
+                if (pct > 92) {
+                    rpmBar.style.backgroundColor = '#ff453a';
+                    rpmBar.style.boxShadow = '0 0 15px 5px rgba(255,69,58,0.8)';
+                } else if (pct > 85) {
+                    rpmBar.style.backgroundColor = '#ffd60a';
+                    rpmBar.style.boxShadow = '0 0 10px 2px rgba(255,214,10,0.6)';
+                } else {
+                    rpmBar.style.backgroundColor = '#ffffff';
+                    rpmBar.style.boxShadow = 'none';
+                }
+            } catch (err) {}
+        };
+
+        function toggleSettings() { const p = document.getElementById('settings-panel'), t = document.getElementById('telemetry-panel'); if (t.style.display === 'block') t.style.display = 'none'; p.style.display = p.style.display === 'block' ? 'none' : 'block'; }
+        function toggleTelemetry() { const t = document.getElementById('telemetry-panel'), p = document.getElementById('settings-panel'); if (p.style.display === 'block') p.style.display = 'none'; t.style.display = t.style.display === 'block' ? 'none' : 'block'; }
+
+        const bgConfigs = {
+            'none': { bg: '#000000', char: '黑high.png' },
+            'dark gray': { bg: 'radial-gradient(circle at 50% 50%, rgba(30,30,35,1) 0%, rgba(10,10,12,1) 100%)', char: '黑high.png' },
+            'carbon': { bg: '#0a0a0c url("https://www.transparenttextures.com/patterns/carbon-fibre.png")', char: '黑high.png' },
+            'light': { bg: '#f5f5f7', char: '白high.png' }
+        };
+
+        function setBg(style) {
+            const cfg = bgConfigs[style];
+            document.getElementById('bg-layer').style.background = cfg.bg; charImg.src = cfg.char;
+            if (style === 'light') { bodyTag.classList.add('light-theme'); bodyTag.style.color = '#1d1d1f'; } else { bodyTag.classList.remove('light-theme'); bodyTag.style.color = '#f5f5f7'; }
+            localStorage.setItem('dash_bg_style', style);
+        }
+        function setOpacity(val) { document.getElementById('bg-layer').style.opacity = val/100; localStorage.setItem('dash_opacity', val); }
+
+        window.onload = () => { setBg(localStorage.getItem('dash_bg_style') || 'none'); setOpacity(localStorage.getItem('dash_opacity') || 100); setDriverNumber(localStorage.getItem('dash_driver_number') || ''); };
+    </script>
+</body>
+</html>

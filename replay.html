@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Replay Modal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <style>
+        @supports (font: -apple-system-body) {
+            body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif; }
+        }
+        html, body { height: 100%; width: 100%; background-color: #000; color: #f5f5f7; overflow: hidden; margin: 0; padding: 0; }
+        
+        .lcd { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+        
+        .apple-material { background: rgba(20, 20, 25, 0.75); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); border-radius: 16px; }
+        .apple-button { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1); cursor: pointer; color: white; }
+        .apple-button:hover { background: rgba(255, 255, 255, 0.15); transform: scale(1.02); }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+
+        input[type=range] { -webkit-appearance: none; background: transparent; width: 100%; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #ffffff; cursor: pointer; margin-top: -6px; box-shadow: 0 2px 6px rgba(0,0,0,0.5); }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: rgba(255,255,255,0.2); border-radius: 2px; }
+        
+        select option { background-color: #1a1a1c; color: white; }
+    </style>
+</head>
+<body class="flex flex-col h-screen p-6 gap-4 relative">
+    
+    <div class="absolute inset-0 z-[-1] bg-[radial-gradient(circle_at_50%_50%,rgba(30,30,35,1)_0%,rgba(0,0,0,1)_100%)]"></div>
+
+    <div class="flex justify-between items-center z-10 shrink-0">
+        <div class="flex items-center gap-5 shrink-0">
+            <button onclick="window.close()" class="apple-button px-4 py-2 text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg> 退出分析
+            </button>
+            <div class="h-8 w-px bg-white/10"></div>
+            <div class="flex flex-col max-w-[300px]">
+                <h1 class="text-base font-semibold text-white/90 tracking-wide">历史记录 <span class="text-xs font-normal text-white/40 ml-1">Vault</span></h1>
+                <p id="current-file-name" class="text-[11px] font-medium text-[#0a84ff] mt-0.5 tracking-wider truncate" title="未挂载数据">未挂载数据</p>
+            </div>
+        </div>
+
+        <div class="flex gap-2 items-center bg-black/40 p-1.5 rounded-xl border border-white/10 shadow-lg">
+            <div class="flex items-center gap-1 px-2 border-r border-white/10 pr-3">
+                <span class="w-2 h-2 rounded-full bg-[#0a84ff]"></span>
+                <select id="file-select-base" onchange="handleBaseSelection()" class="bg-transparent text-white text-xs font-medium py-1 outline-none cursor-pointer max-w-[160px] truncate text-ellipsis appearance-none">
+                    <option value="">[基准] 选择遥测...</option>
+                </select>
+                <button onclick="deleteSelectedLap('base')" class="text-white/30 hover:text-[#ff453a] transition-colors ml-1" title="销毁基准档案">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                </button>
+            </div>
+            
+            <span class="text-[10px] font-black text-white/30 italic px-1">VS</span>
+            
+            <div class="flex items-center gap-1 px-2">
+                <span class="w-2 h-2 rounded-full bg-[#bf5af2]"></span>
+                <select id="file-select-comp" class="bg-transparent text-white text-xs font-medium py-1 outline-none cursor-pointer max-w-[160px] truncate text-ellipsis appearance-none">
+                    <option value="">[对比] 选择遥测...</option>
+                </select>
+                <button onclick="deleteSelectedLap('comp')" class="text-white/30 hover:text-[#ff453a] transition-colors ml-1" title="销毁对比档案">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                </button>
+            </div>
+            
+            <button onclick="loadComparisonFiles()" class="bg-[#0a84ff] hover:bg-[#007aff] text-white font-bold py-1.5 px-4 rounded-lg transition-colors text-[11px] uppercase tracking-wider shrink-0 ml-2">挂载解析</button>
+        </div>
+    </div>
+
+    <div class="flex gap-4 flex-1 min-h-0 z-10">
+        <div class="w-[30%] flex flex-col gap-4 shrink-0">
+            <div class="apple-material flex-1 p-5 flex flex-col relative overflow-hidden">
+                <div class="flex justify-between items-center mb-2 border-b border-white/10 pb-2">
+                    <h2 class="text-[11px] font-bold text-white/50 uppercase tracking-widest">物理轨迹 (Absolute GPS)</h2>
+                    <span id="gps-warn" class="text-[9px] font-bold text-[#ff453a] hidden border border-[#ff453a]/50 px-1 rounded bg-[#ff453a]/20">缺坐标数据</span>
+                </div>
+                <div class="flex-1 relative min-h-0 w-full">
+                    <canvas id="track-map"></canvas>
+                </div>
+            </div>
+            
+            <div class="apple-material p-5 grid grid-cols-2 gap-4 shrink-0">
+                <div class="flex flex-col border-r border-white/10">
+                    <span class="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">基准车速</span>
+                    <span id="read-speed" class="text-3xl font-bold lcd text-white">0 <span class="text-xs text-white/40">km/h</span></span>
+                </div>
+                <div class="flex flex-col pl-4">
+                    <span class="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">对比车速差</span>
+                    <span id="read-speed-delta" class="text-3xl font-bold lcd text-[#bf5af2]">--</span>
+                </div>
+                <div class="flex flex-col border-r border-white/10 mt-2">
+                    <span class="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">基准油门/刹车</span>
+                    <span class="text-base font-bold lcd text-[#34c759] leading-none mb-1"><span id="read-accel">0</span>% <span class="text-[8px] text-white/30 ml-1">THR</span></span>
+                    <span class="text-base font-bold lcd text-[#ff453a] leading-none"><span id="read-brake">0</span>% <span class="text-[8px] text-white/30 ml-1">BRK</span></span>
+                </div>
+                <div class="flex flex-col pl-4 mt-2">
+                    <span class="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">引擎工况</span>
+                    <span id="read-rpm" class="text-lg font-bold lcd text-white">0 <span class="text-[9px] text-white/40">RPM</span></span>
+                    <span id="read-gear" class="text-xl font-bold lcd text-white leading-none mt-1">N <span class="text-[9px] text-white/40">GEAR</span></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="w-[70%] flex flex-col min-h-0 gap-4">
+            <div class="flex justify-between items-center shrink-0 px-2">
+                <h2 class="text-[11px] font-bold text-white/50 uppercase tracking-widest">动态遥测矩阵 (Telemetry Matrix)</h2>
+                <button onclick="addNewChartChannel('Speed')" class="apple-button px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#0a84ff] border-[#0a84ff]/50 bg-[#0a84ff]/10 hover:bg-[#0a84ff]/20">+ 新增数据通道</button>
+            </div>
+
+            <div id="charts-container" class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 pr-2">
+                </div>
+            
+            <div class="shrink-0 bg-black/40 border border-white/5 rounded-xl p-4 flex items-center gap-6 apple-material">
+                <button id="play-btn" onclick="togglePlay()" class="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform shadow-[0_0_15px_rgba(255,255,255,0.3)] shrink-0">
+                    <svg id="icon-play" class="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4l12 6-12 6z"></path></svg>
+                    <svg id="icon-pause" class="w-6 h-6 hidden" fill="currentColor" viewBox="0 0 20 20"><path d="M5 4h3v12H5V4zm7 0h3v12h-3V4z"></path></svg>
+                </button>
+                <div class="flex-1 flex flex-col gap-2">
+                    <input type="range" id="scrubber" min="0" max="100" value="0" step="1" oninput="scrubData()">
+                    <div class="flex justify-between text-[10px] font-bold text-white/40 uppercase tracking-widest lcd">
+                        <span id="time-current">0m</span>
+                        <span id="time-total">--m</span>
+                    </div>
+                </div>
+                <div class="flex flex-col items-center shrink-0">
+                    <span class="text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">播放速率</span>
+                    <select id="speed-select" class="bg-transparent border border-white/20 text-white text-xs font-bold py-1 px-2 rounded outline-none cursor-pointer hover:bg-white/10 transition-colors">
+                        <option value="0.25">0.25x</option>
+                        <option value="0.5">0.5x</option>
+                        <option value="1" selected>1.0x</option>
+                        <option value="2">2.0x</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let baseData = [], compData = [];
+        let mapChart;
+        let chartInstances = []; 
+        let chartIdCounter = 0;
+        let isPlaying = false;
+        let playInterval;
+        let currentIndex = 0;
+        let alignmentMap = []; 
+        
+        let globalLapFiles = []; 
+
+        Chart.defaults.color = 'rgba(255, 255, 255, 0.4)';
+        Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+
+        const METRICS = {
+            'Speed': { label: '车速 (km/h)', color: '#0a84ff', calc: r => r.Speed * 3.6, min: 0, max: 350 },
+            'Accel': { label: '油门 (%)', color: '#34c759', calc: r => r.Accel / 2.55, min: 0, max: 100 },
+            'Brake': { label: '刹车 (%)', color: '#ff453a', calc: r => r.Brake / 2.55, min: 0, max: 100 },
+            'RPM': { label: '引擎转速 (RPM)', color: '#ffd60a', calc: r => r.CurrentEngineRpm, min: 0, max: 10000 },
+            'Gear': { label: '挡位', color: '#ffffff', calc: r => r.Gear === 0 ? -1 : (r.Gear === 11 ? 0 : r.Gear), min: -1, max: 8 },
+            'Slip_F': { label: '前轮滑移率', color: '#ff9f0a', calc: r => Math.max(r.TireCombinedSlip_FL||0, r.TireCombinedSlip_FR||0), min: 0, max: 2 },
+            'Slip_R': { label: '后轮滑移率', color: '#ff9f0a', calc: r => Math.max(r.TireCombinedSlip_RL||0, r.TireCombinedSlip_RR||0), min: 0, max: 2 },
+            'Lat_G': { label: '横向 G力', color: '#bf5af2', calc: r => r.Accel_X / 9.81, min: -2, max: 2 },
+            'Long_G': { label: '纵向 G力', color: '#32d74b', calc: r => r.Accel_Z / 9.81, min: -2, max: 2 },
+        };
+
+        window.onload = async () => {
+            initMapChart();
+            await fetchFileList();
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const fileParam = urlParams.get('file');
+            if (fileParam) {
+                document.getElementById('file-select-base').value = fileParam;
+                handleBaseSelection();
+                loadComparisonFiles();
+            }
+        };
+
+        // 封装拉取函数，供刷新使用
+        async function fetchFileList() {
+            try {
+                const res = await fetch('/api/laps');
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                globalLapFiles = data.files;
+                populateDropdowns(globalLapFiles, globalLapFiles);
+            } catch (e) {
+                console.error("遥测数据拉取失败:", e);
+                document.getElementById('current-file-name').innerText = "数据库离线 (请检查后台终端)";
+                document.getElementById('current-file-name').style.color = '#ff453a';
+            }
+        }
+
+        // 核心新增：独立的物理档案销毁函数
+        async function deleteSelectedLap(type) {
+            const selectEl = document.getElementById(type === 'base' ? 'file-select-base' : 'file-select-comp');
+            const file = selectEl.value;
+            if (!file) return;
+            
+            let shortName = file.split(/[/\\]/).pop().replace('.csv', '');
+            if (!confirm(`警告：确定要彻底销毁档案 [ ${shortName} ] 吗？\n此操作不可逆。`)) return;
+            
+            try {
+                const res = await fetch('/api/laps', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: file })
+                });
+                
+                if (res.ok) {
+                    await fetchFileList();
+                    if (type === 'base') handleBaseSelection();
+                    
+                    // 如果正在分析被删的文件，彻底清盘重启
+                    if ((baseData.length > 0 && type === 'base') || (compData.length > 0 && type === 'comp')) {
+                        document.getElementById('current-file-name').innerText = "档案已销毁";
+                        baseData = []; compData = [];
+                        mapChart.data.datasets.forEach(ds => ds.data = []);
+                        mapChart.update();
+                        chartInstances.forEach(inst => {
+                            inst.chart.data.datasets.forEach(ds => ds.data = []);
+                            inst.chart.update();
+                        });
+                        pausePlayback();
+                    }
+                }
+            } catch (e) {
+                alert('销毁失败，文件可能被系统锁定。');
+            }
+        }
+
+        function populateDropdowns(baseFiles, compFiles) {
+            const selBase = document.getElementById('file-select-base');
+            const selComp = document.getElementById('file-select-comp');
+            
+            let currBase = selBase.value;
+            let currComp = selComp.value;
+
+            selBase.innerHTML = '<option value="">[基准] 选择遥测...</option>';
+            selComp.innerHTML = '<option value="">[对比] 选择遥测...</option>';
+
+            baseFiles.forEach(f => {
+                let cleanName = f.split(/[/\\]/).pop().replace('.csv', '');
+                selBase.add(new Option(cleanName, f));
+            });
+            
+            compFiles.forEach(f => {
+                let cleanName = f.split(/[/\\]/).pop().replace('.csv', '');
+                selComp.add(new Option(cleanName, f));
+            });
+
+            if (currBase && Array.from(selBase.options).some(opt => opt.value === currBase)) selBase.value = currBase;
+            if (currComp && Array.from(selComp.options).some(opt => opt.value === currComp)) selComp.value = currComp;
+        }
+
+        function handleBaseSelection() {
+            const selBase = document.getElementById('file-select-base');
+            const selComp = document.getElementById('file-select-comp');
+            const selectedFile = selBase.value;
+
+            if (!selectedFile) {
+                populateDropdowns(globalLapFiles, globalLapFiles);
+                return;
+            }
+
+            const trackName = selectedFile.split(/[/\\]/)[0];
+            const filteredCompFiles = globalLapFiles.filter(f => f.split(/[/\\]/)[0] === trackName);
+            
+            const currComp = selComp.value;
+            selComp.innerHTML = '<option value="">[对比] 选择遥测...</option>';
+            filteredCompFiles.forEach(f => {
+                let cleanName = f.split(/[/\\]/).pop().replace('.csv', '');
+                selComp.add(new Option(cleanName, f));
+            });
+
+            if (Array.from(selComp.options).some(opt => opt.value === currComp)) {
+                selComp.value = currComp;
+            } else {
+                selComp.value = "";
+            }
+        }
+
+        function initMapChart() {
+            const ctxMap = document.getElementById('track-map');
+            mapChart = new Chart(ctxMap, {
+                type: 'scatter',
+                data: { datasets: [
+                    { label: '基准轨迹', data: [], backgroundColor: 'rgba(10, 132, 255, 0.5)', pointRadius: 1 },
+                    { label: '对比轨迹', data: [], backgroundColor: 'rgba(191, 90, 242, 0.5)', pointRadius: 1 }
+                ] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                    scales: { x: { display: false }, y: { display: false } }
+                }
+            });
+        }
+
+        function addNewChartChannel(defaultMetric = 'Speed') {
+            const container = document.getElementById('charts-container');
+            const cid = `chart-${chartIdCounter++}`;
+            
+            let optionsHtml = '';
+            for (let key in METRICS) {
+                optionsHtml += `<option value="${key}" ${key === defaultMetric ? 'selected' : ''}>${METRICS[key].label}</option>`;
+            }
+
+            const wrapper = document.createElement('div');
+            wrapper.className = "apple-material p-3 relative h-48 shrink-0 border border-white/5";
+            wrapper.innerHTML = `
+                <div class="absolute top-3 right-4 flex gap-3 z-10 items-center">
+                    <select id="sel-${cid}" class="bg-black/60 border border-white/20 text-white/80 text-[10px] font-bold rounded px-2 py-1 outline-none cursor-pointer" onchange="updateSingleChart('${cid}')">
+                        ${optionsHtml}
+                    </select>
+                    <button onclick="removeChartChannel('${cid}')" class="text-white/30 hover:text-[#ff453a] transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+                </div>
+                <canvas id="canvas-${cid}"></canvas>
+            `;
+            container.appendChild(wrapper);
+
+            const ctx = document.getElementById(`canvas-${cid}`);
+            const newChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: [], datasets: [] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { position: 'top', align: 'start', labels: { usePointStyle: true, boxWidth: 6, font: { size: 10 } } } },
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { maxTicksLimit: 10, callback: function(val) { return this.getLabelForValue(val) + 'm'; } } },
+                        y: { type: 'linear', display: true, position: 'left', grid: { color: 'rgba(255,255,255,0.05)' } }
+                    }
+                }
+            });
+
+            chartInstances.push({ id: cid, chart: newChart, wrapper: wrapper });
+            updateSingleChart(cid);
+        }
+
+        function removeChartChannel(cid) {
+            const idx = chartInstances.findIndex(c => c.id === cid);
+            if (idx > -1) {
+                chartInstances[idx].chart.destroy();
+                chartInstances[idx].wrapper.remove();
+                chartInstances.splice(idx, 1);
+            }
+        }
+
+        function updateSingleChart(cid) {
+            if (baseData.length === 0) return;
+            const inst = chartInstances.find(c => c.id === cid);
+            if (!inst) return;
+
+            const metricKey = document.getElementById(`sel-${cid}`).value;
+            const conf = METRICS[metricKey];
+            
+            let bData = [], cData = [], labels = [];
+            let bStartDist = baseData[0].DistanceTraveled;
+
+            baseData.forEach((r, idx) => {
+                labels.push((r.DistanceTraveled - bStartDist).toFixed(0));
+                bData.push(conf.calc(r));
+                
+                if (compData.length > 0) {
+                    let cIdx = alignmentMap[idx];
+                    cData.push(cIdx !== undefined ? conf.calc(compData[cIdx]) : null);
+                }
+            });
+
+            inst.chart.data.labels = labels;
+            inst.chart.data.datasets = [{ label: `基准 (Base)`, data: bData, borderColor: conf.color, borderWidth: 1.5, pointRadius: 0, tension: 0.1 }];
+            
+            if (compData.length > 0) {
+                inst.chart.data.datasets.push({ label: `对比 (Comp)`, data: cData, borderColor: '#bf5af2', borderWidth: 1.5, borderDash: [4,4], pointRadius: 0, tension: 0.1 });
+            }
+
+            inst.chart.options.scales.y.suggestedMin = conf.min;
+            inst.chart.options.scales.y.suggestedMax = conf.max;
+            inst.chart.update();
+            drawScrubLine();
+        }
+
+        function fetchCsvData(file) {
+            return new Promise(resolve => {
+                if (!file) return resolve([]);
+                Papa.parse(`/data/${encodeURIComponent(file)}`, {
+                    download: true, header: true, dynamicTyping: true,
+                    complete: function(results) { resolve(results.data.filter(r => r.DistanceTraveled != null)); }
+                });
+            });
+        }
+
+        async function loadComparisonFiles() {
+            const baseFile = document.getElementById('file-select-base').value;
+            const compFile = document.getElementById('file-select-comp').value;
+            if (!baseFile && !compFile) return;
+
+            pausePlayback();
+            document.getElementById('current-file-name').innerText = "解析与数学对齐中...";
+
+            const [bData, cData] = await Promise.all([fetchCsvData(baseFile), fetchCsvData(compFile)]);
+            
+            if (cData.length > 0 && bData.length === 0) { baseData = cData; compData = []; } 
+            else { baseData = bData; compData = cData; }
+
+            let title = baseFile ? baseFile.split(/[/\\]/).pop().replace('.csv', '') : "未知";
+            if (compFile && baseData !== compData) title += ` VS ${compFile.split(/[/\\]/).pop().replace('.csv', '')}`;
+            
+            const titleEl = document.getElementById('current-file-name');
+            titleEl.innerText = title; titleEl.title = title;
+
+            alignmentMap = [];
+            let mapBase = [], mapComp = [];
+            let hasGps = false;
+
+            if (baseData.length > 0) {
+                let bStartDist = baseData[0].DistanceTraveled;
+                let cStartDist = compData.length > 0 ? compData[0].DistanceTraveled : 0;
+                let compIdx = 0;
+
+                baseData.forEach((r, idx) => {
+                    if (r.Position_X !== undefined && r.Position_Z !== undefined) {
+                        mapBase.push({ x: r.Position_X, y: r.Position_Z });
+                        hasGps = true;
+                    }
+
+                    let targetDist = r.DistanceTraveled - bStartDist;
+                    
+                    if (compData.length > 0) {
+                        while (compIdx < compData.length - 1) {
+                            let dCurr = compData[compIdx].DistanceTraveled - cStartDist;
+                            let dNext = compData[compIdx+1].DistanceTraveled - cStartDist;
+                            if (Math.abs(dNext - targetDist) < Math.abs(dCurr - targetDist)) compIdx++;
+                            else break;
+                        }
+                        alignmentMap[idx] = compIdx;
+                        let cr = compData[compIdx];
+                        if (cr.Position_X !== undefined && cr.Position_Z !== undefined) {
+                            mapComp.push({ x: cr.Position_X, y: cr.Position_Z });
+                        }
+                    }
+                });
+            }
+
+            const gpsWarn = document.getElementById('gps-warn');
+            if (hasGps) {
+                gpsWarn.classList.add('hidden');
+                mapChart.data.datasets[0].data = mapBase;
+                mapChart.data.datasets[1].data = mapComp;
+            } else {
+                gpsWarn.classList.remove('hidden');
+                mapChart.data.datasets[0].data = []; mapChart.data.datasets[1].data = [];
+            }
+            mapChart.update();
+
+            document.getElementById('scrubber').max = baseData.length - 1;
+            document.getElementById('time-total').innerText = (baseData[baseData.length-1].DistanceTraveled - baseData[0].DistanceTraveled).toFixed(0) + 'm';
+            currentIndex = 0;
+            
+            if (chartInstances.length === 0) {
+                addNewChartChannel('Speed');
+                addNewChartChannel('Accel');
+            } else {
+                chartInstances.forEach(c => updateSingleChart(c.id));
+            }
+
+            updateReadouts();
+        }
+
+        function updateReadouts() {
+            if (!baseData || baseData.length === 0 || currentIndex >= baseData.length) return;
+            const r = baseData[currentIndex];
+            
+            let bSpeed = r.Speed * 3.6;
+            document.getElementById('read-speed').innerHTML = `${bSpeed.toFixed(0)} <span class="text-[10px] text-white/40">KM/H</span>`;
+            document.getElementById('read-rpm').innerHTML = `${(r.CurrentEngineRpm || 0).toFixed(0)} <span class="text-[9px] text-white/40">RPM</span>`;
+            document.getElementById('read-accel').innerText = (r.Accel / 2.55).toFixed(0);
+            document.getElementById('read-brake').innerText = (r.Brake / 2.55).toFixed(0);
+            
+            let g = r.Gear;
+            document.getElementById('read-gear').innerHTML = `${g === 0 ? 'R' : (g === 11 ? 'N' : g)} <span class="text-[9px] text-white/40">GEAR</span>`;
+
+            const deltaEl = document.getElementById('read-speed-delta');
+            if (compData.length > 0) {
+                let cIdx = alignmentMap[currentIndex];
+                if (cIdx !== undefined && compData[cIdx]) {
+                    let cSpeed = compData[cIdx].Speed * 3.6;
+                    let diff = bSpeed - cSpeed;
+                    let sign = diff >= 0 ? "+" : "";
+                    let color = diff >= 0 ? "text-[#34c759]" : "text-[#ff453a]"; 
+                    deltaEl.innerHTML = `<span class="${color}">${sign}${diff.toFixed(1)} <span class="text-xs opacity-50">km/h</span></span>`;
+                }
+            } else { deltaEl.innerHTML = "--"; }
+
+            document.getElementById('scrubber').value = currentIndex;
+            let dist = (r.DistanceTraveled - baseData[0].DistanceTraveled).toFixed(0);
+            document.getElementById('time-current').innerText = dist + 'm';
+        }
+
+        function scrubData() {
+            pausePlayback();
+            currentIndex = parseInt(document.getElementById('scrubber').value);
+            updateReadouts();
+            drawScrubLine();
+        }
+
+        function drawScrubLine() {
+            if (baseData.length === 0) return;
+            
+            chartInstances.forEach(inst => {
+                if (inst.chart.data.datasets[0].data.length > 0) {
+                    inst.chart.setActiveElements([{ datasetIndex: 0, index: currentIndex }]);
+                    inst.chart.update();
+                }
+            });
+            
+            let mapBase = mapChart.data.datasets[0].data;
+            let mapComp = mapChart.data.datasets[1].data;
+            
+            if (mapChart.data.datasets.length > 2) mapChart.data.datasets.splice(2);
+            
+            if(mapBase[currentIndex]) {
+                mapChart.data.datasets.push({ label: '基准点', data: [mapBase[currentIndex]], backgroundColor: '#000', pointRadius: 5, pointBorderColor: '#0a84ff', pointBorderWidth: 2 });
+            }
+            if(compData.length > 0) {
+                let cIdx = alignmentMap[currentIndex];
+                if (cIdx !== undefined && mapComp[cIdx]) {
+                    mapChart.data.datasets.push({ label: '对比点', data: [mapComp[cIdx]], backgroundColor: '#000', pointRadius: 5, pointBorderColor: '#bf5af2', pointBorderWidth: 2 });
+                }
+            }
+            mapChart.update();
+        }
+
+        function togglePlay() {
+            if (baseData.length === 0) return;
+            if (isPlaying) pausePlayback(); else startPlayback();
+        }
+
+        function startPlayback() {
+            isPlaying = true;
+            document.getElementById('icon-play').classList.add('hidden');
+            document.getElementById('icon-pause').classList.remove('hidden');
+            
+            if (currentIndex >= baseData.length - 1) currentIndex = 0;
+            let rate = parseFloat(document.getElementById('speed-select').value) || 1;
+            let intervalMs = 16.6 / rate;
+            
+            playInterval = setInterval(() => {
+                if (currentIndex < baseData.length - 1) {
+                    currentIndex++;
+                    updateReadouts();
+                    if(currentIndex % 5 === 0) drawScrubLine();
+                } else {
+                    pausePlayback();
+                }
+            }, intervalMs);
+        }
+
+        function pausePlayback() {
+            isPlaying = false;
+            document.getElementById('icon-play').classList.remove('hidden');
+            document.getElementById('icon-pause').classList.add('hidden');
+            clearInterval(playInterval);
+            drawScrubLine();
+        }
+    </script>
+</body>
+</html>

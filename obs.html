@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <title>OBS F1 TV Broadcast Overlay</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @supports (font: -apple-system-body) {
+            body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif; }
+        }
+        html, body { height: 100%; width: 100%; background-color: transparent !important; color: #f5f5f7; overflow: hidden; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; position: relative; }
+        
+        .lcd { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+
+        /* F1 TV 面板 */
+        .f1-panel { background: rgba(10, 10, 12, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.15); box-shadow: 0 25px 50px rgba(0, 0, 0, 0.8); border-radius: 12px; overflow: hidden; }
+
+        .pedal-track { flex-grow: 1; height: 12px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden; position: relative; }
+        .pedal-fill { height: 100%; width: 0%; transition: width 0.05s linear; border-radius: 3px; }
+        .accel-fill { background: linear-gradient(90deg, #10b981 0%, #34d399 100%); box-shadow: 0 0 10px rgba(52, 211, 153, 0.5); } 
+        .brake-fill { background: linear-gradient(90deg, #ef4444 0%, #f87171 100%); box-shadow: 0 0 10px rgba(248, 113, 113, 0.5); }
+
+        #rpm-bar-bg { width: 100%; height: 8px; background-color: rgba(255, 255, 255, 0.1); } 
+        #rpm-bar { height: 100%; transition: width 0.05s linear, background-color 0.2s ease, box-shadow 0.2s ease; } 
+
+        .shift-blink { animation: shift-flash 0.1s infinite !important; }
+        @keyframes shift-flash { 0%, 100% { background: rgba(255,0,0,0.3); } 50% { background: transparent; } }
+
+        .warn-active { animation: text-flash 0.15s infinite; color: #ff453a !important; }
+        @keyframes text-flash { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    </style>
+</head>
+<body id="body-tag">
+
+    <div class="absolute top-4 right-4 flex items-center gap-2 bg-black/60 p-2 rounded-lg border border-white/10 backdrop-blur-md">
+        <span id="conn-dot" class="w-3 h-3 rounded-full bg-[#ffd60a] shadow-[0_0_8px_#ffd60a]"></span>
+        <span id="conn-text" class="text-[10px] font-bold text-white/70 uppercase tracking-widest">CONNECTING...</span>
+    </div>
+
+    <div id="error-log" class="absolute top-16 right-4 text-[#ff453a] text-[10px] font-mono bg-black/80 p-2 rounded hidden border border-[#ff453a]/50 max-w-[300px] break-words"></div>
+
+    <div id="broadcast-hud" class="absolute bottom-12 left-1/2 transform -translate-x-1/2 w-[850px] f1-panel flex flex-col transition-all duration-300 opacity-30 scale-95">
+        
+        <div id="standby-mask" class="absolute inset-0 bg-black/50 z-50 flex items-center justify-center">
+            <span class="text-white/50 font-bold tracking-widest uppercase text-xl">System Standby</span>
+        </div>
+
+        <div id="rpm-bar-bg">
+            <div id="rpm-bar" style="width: 0%"></div>
+        </div>
+
+        <div class="flex items-stretch h-[90px] relative z-10">
+            <div class="flex items-center justify-center w-28 border-r border-white/10 bg-white/5 relative">
+                <span id="gear" class="text-[5.5rem] font-bold text-white lcd leading-none -mt-2 drop-shadow-lg" style="font-family: -apple-system, 'SF Pro Display';">N</span>
+            </div>
+            
+            <div class="flex flex-col items-end justify-center w-40 px-6 border-r border-white/10">
+                <span id="speed" class="text-[4rem] font-bold text-white lcd leading-none tracking-tight drop-shadow-md">0</span>
+                <span class="text-[10px] font-bold text-white/50 tracking-widest uppercase mt-1">KM/H</span>
+            </div>
+            
+            <div class="flex flex-col justify-center px-6 w-56 border-r border-white/10 gap-3">
+                <div class="w-full flex items-center gap-3">
+                    <span id="thr-lbl" class="text-[11px] font-black text-white/50 w-8 tracking-widest transition-colors">THR</span>
+                    <div class="pedal-track"><div id="accel-bar" class="pedal-fill accel-fill"></div></div>
+                </div>
+                <div class="w-full flex items-center gap-3">
+                    <span id="brk-lbl" class="text-[11px] font-black text-white/50 w-8 tracking-widest transition-colors">BRK</span>
+                    <div class="pedal-track"><div id="brake-bar" class="pedal-fill brake-fill"></div></div>
+                </div>
+            </div>
+            
+            <div class="flex flex-col justify-center px-6 flex-1 gap-1.5 bg-black/20">
+                <div class="flex justify-between items-center">
+                    <span class="text-[10px] font-bold text-white/50 uppercase tracking-widest">LAP</span>
+                    <span id="lap-val" class="text-base font-bold text-white lcd">--</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-[10px] font-bold text-white/50 uppercase tracking-widest">POS</span>
+                    <span id="pos-val" class="text-base font-bold text-white lcd text-[#ffd60a]">P-</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-[10px] font-bold text-white/50 uppercase tracking-widest">DELTA</span>
+                    <span id="lap-delta" class="text-base font-bold text-white lcd">--.---</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const bodyTag = document.getElementById('body-tag');
+        const hud = document.getElementById('broadcast-hud');
+        const standbyMask = document.getElementById('standby-mask');
+        const connDot = document.getElementById('conn-dot');
+        const connText = document.getElementById('conn-text');
+        const errorLog = document.getElementById('error-log');
+
+        function connectWebSocket() {
+            // 直接抓取当前浏览器栏的 Host
+            const wsUrl = `ws://${window.location.host}/ws`;
+            const ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                connDot.className = "w-3 h-3 rounded-full bg-[#34c759] shadow-[0_0_8px_#34c759]";
+                connText.innerText = "ONLINE";
+                errorLog.classList.add('hidden');
+            };
+
+            ws.onerror = (e) => {
+                connDot.className = "w-3 h-3 rounded-full bg-[#ff453a] shadow-[0_0_8px_#ff453a]";
+                connText.innerText = "WS ERROR";
+                errorLog.innerText = "无法连接至引擎: " + wsUrl;
+                errorLog.classList.remove('hidden');
+            };
+
+            ws.onclose = () => {
+                connDot.className = "w-3 h-3 rounded-full bg-[#ff453a] shadow-[0_0_8px_#ff453a]";
+                connText.innerText = "OFFLINE";
+                setTimeout(connectWebSocket, 3000); // 断线重连
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const d = JSON.parse(event.data);
+                    
+                    // 状态唤醒逻辑
+                    if (d.IsRaceOn === 0) {
+                        hud.style.opacity = '0.3';
+                        hud.style.transform = 'translate(-50%, 0) scale(0.95)';
+                        standbyMask.style.display = 'flex';
+                    } else {
+                        hud.style.opacity = '1';
+                        hud.style.transform = 'translate(-50%, 0) scale(1)';
+                        standbyMask.style.display = 'none';
+                    }
+
+                    // 填充数据
+                    document.getElementById('pos-val').innerText = d.Position > 0 ? "P" + d.Position : "P-";
+                    document.getElementById('lap-val').innerText = d.Lap; 
+                    document.getElementById('gear').innerText = d.Gear;
+                    document.getElementById('speed').innerText = d.Speed;
+                    
+                    if (d.Delta) {
+                        const de = document.getElementById('lap-delta'); 
+                        de.innerText = d.Delta;
+                        if (d.Delta.includes("-")) de.className = "text-base font-bold lcd text-[#34c759] drop-shadow-[0_0_8px_rgba(52,199,89,0.5)]";
+                        else if (d.Delta.includes("+")) de.className = "text-base font-bold lcd text-[#ff453a]";
+                        else de.className = "text-base font-bold lcd text-white/50";
+                    }
+
+                    document.getElementById('accel-bar').style.width = d.Accel + "%"; 
+                    document.getElementById('brake-bar').style.width = d.Brake + "%";
+
+                    if (d.ShiftNow) bodyTag.classList.add('shift-blink'); else bodyTag.classList.remove('shift-blink');
+                    
+                    const brkLbl = document.getElementById('brk-lbl');
+                    if (d.FrontSlip) {
+                        brkLbl.innerText = "LOCK"; brkLbl.classList.add('warn-active');
+                    } else {
+                        brkLbl.innerText = "BRK"; brkLbl.classList.remove('warn-active');
+                    }
+                    
+                    const thrLbl = document.getElementById('thr-lbl');
+                    if (d.RearSlip) {
+                        thrLbl.innerText = "SLIP"; thrLbl.classList.add('warn-active');
+                        thrLbl.style.color = '#ffd60a'; 
+                    } else {
+                        thrLbl.innerText = "THR"; thrLbl.classList.remove('warn-active');
+                        thrLbl.style.color = '';
+                    }
+
+                    const rpmBar = document.getElementById('rpm-bar');
+                    const pct = (d.RPM / d.MaxRPM) * 100;
+                    rpmBar.style.width = Math.min(pct, 100) + "%";
+                    
+                    if (pct > 92) {
+                        rpmBar.style.backgroundColor = '#ff453a';
+                        rpmBar.style.boxShadow = '0 0 15px 5px rgba(255,69,58,0.8)';
+                    } else if (pct > 85) {
+                        rpmBar.style.backgroundColor = '#ffd60a';
+                        rpmBar.style.boxShadow = '0 0 10px 2px rgba(255,214,10,0.6)';
+                    } else {
+                        rpmBar.style.backgroundColor = '#ffffff';
+                        rpmBar.style.boxShadow = '0 0 10px rgba(255,255,255,0.5)';
+                    }
+                } catch (err) {
+                    errorLog.innerText = "解析帧报错: " + err.message;
+                    errorLog.classList.remove('hidden');
+                }
+            };
+        }
+
+        // 启动通讯
+        connectWebSocket();
+    </script>
+</body>
+</html>
