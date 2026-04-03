@@ -3,22 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Forza HUD Dash</title>
+    <title>Telemetry Dash - Pro Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        @supports (font: -apple-system-body) {
-            body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif; }
-        }
-        html, body { height: 100%; width: 100%; background-color: #000; color: #f5f5f7; overflow: hidden; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; position: fixed; }
+        @supports (font: -apple-system-body) { body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif; } }
+        html, body { height: 100%; width: 100%; background-color: #000; color: #f5f5f7; overflow: hidden; margin: 0; padding: 0; position: fixed; touch-action: none; user-select: none; -webkit-user-select: none; }
         
         #bg-layer { position: absolute; inset: 0; z-index: -1; transition: background 0.3s ease, opacity 0.3s ease; background-color: #000; }
         #main-overlay { height: 100%; width: 100%; position: absolute; top: 0; left: 0; z-index: 1; }
-        
         .lcd { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-        
         .apple-material { background: rgba(20, 20, 25, 0.75); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); border-radius: 16px; }
-        .apple-pill { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 9999px; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
-        .apple-pill:hover { background: rgba(255, 255, 255, 0.15); transform: scale(1.02); }
+        .apple-pill { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 9999px; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); cursor: pointer; }
+        .apple-pill:active { transform: scale(0.96); background: rgba(255, 255, 255, 0.2); }
 
         .pedal-box { width: 28px; height: 160px; background: rgba(255, 255, 255, 0.06); border-radius: 14px; position: relative; overflow: hidden; box-shadow: inset 0 2px 10px rgba(0,0,0,0.5); }
         .pedal-fill { position: absolute; bottom: 0; width: 100%; transition: height 0.08s cubic-bezier(0.2, 0.8, 0.2, 1); border-radius: 14px; }
@@ -28,24 +24,21 @@
         .tyre { width: 44px; height: 68px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; transition: all 0.4s ease; background: rgba(0,0,0,0.5); }
         .tyre-val { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.95); text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
 
-        #rpm-bar-bg { background-color: rgba(255, 255, 255, 0.08); border-radius: 8px; overflow: hidden; } 
-        #rpm-bar { transition: width 0.05s linear, background-color 0.2s ease, box-shadow 0.2s ease; } 
-        
-        @keyframes pit-pulse { 0%, 100% { background: rgba(239, 68, 68, 0.9); box-shadow: 0 0 20px rgba(239, 68, 68, 0.5); } 50% { background: rgba(185, 28, 28, 0.9); box-shadow: 0 0 10px rgba(239, 68, 68, 0.2); } }
-        .pit-alert { animation: pit-pulse 1s infinite; color: white; border: 1px solid rgba(255,255,255,0.3); backdrop-filter: blur(10px); }
-        
-        @keyframes box-pulse { 0%, 100% { background: rgba(234, 179, 8, 0.9); color: black; box-shadow: 0 0 20px rgba(234, 179, 8, 0.4); } 50% { background: rgba(202, 138, 4, 0.9); color: black; } }
-        .box-alert { animation: box-pulse 1s infinite; border: 1px solid rgba(255,255,255,0.5); backdrop-filter: blur(10px); }
+        #rpm-bar-bg { background-color: rgba(255, 255, 255, 0.08); border-radius: 8px; overflow: hidden; transform: translateZ(0); } 
+        #rpm-bar { transition: width 0.05s linear, background-color 0.2s ease, box-shadow 0.2s ease; will-change: width; } 
         
         .shift-blink { animation: shift-flash 0.1s infinite !important; }
         @keyframes shift-flash { 0%, 100% { background: rgba(255,0,0,0.15); } 50% { background: transparent; } }
-
         @keyframes pedal-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
         .flash-pedal { animation: pedal-blink 0.15s infinite; }
 
         .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 999; align-items: center; justify-content: center; backdrop-filter: blur(8px); transition: opacity 0.3s; }
         .modal-content { background: rgba(20, 20, 25, 0.95); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; width: 540px; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8); max-height: 85vh; display: flex; flex-direction: column; }
         
+        /* Finder 专属样式 */
+        .finder-modal { width: 850px !important; height: 600px; padding: 0 !important; overflow: hidden; display: flex; flex-direction: column; }
+        .tree-item.active { background-color: #0a84ff; color: white; box-shadow: 0 2px 10px rgba(10, 132, 255, 0.4); }
+
         .panel { position: absolute; background: rgba(20, 20, 25, 0.95); border: 1px solid rgba(255,255,255,0.1); padding: 15px; border-radius: 16px; display: none; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
         #settings-panel { bottom: 80px; right: 20px; width: 250px; z-index: 110; }
         #telemetry-panel { top: 60px; right: 20px; width: 240px; z-index: 110; }
@@ -66,7 +59,6 @@
         
         #character-container { position: absolute; bottom: 85px; left: 30px; width: 140px; pointer-events: none; opacity: 0.8; z-index: 5; }
         #char-img { width: 100%; height: auto; transition: all 0.5s ease; }
-
         #bg-car-number { opacity: 0.03; mix-blend-mode: overlay; z-index: 0; }
         
         body.light-theme { color: #111; }
@@ -74,19 +66,29 @@
         body.light-theme .text-white\/40, body.light-theme .text-white\/60, body.light-theme .text-white\/30 { color: #555; }
         body.light-theme .apple-material { background: rgba(250,250,250,0.85); border-color: rgba(0,0,0,0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
         body.light-theme .apple-pill { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.1); }
-        body.light-theme .apple-pill:hover { background: rgba(0,0,0,0.1); }
         body.light-theme .panel, body.light-theme .modal-content, body.light-theme #debrief-drawer { background: #fff; border-color: #ccc; }
         body.light-theme .strat-input { background: #f0f0f0; border-color: #ccc; color: #111; }
         body.light-theme #bg-car-number { opacity: 0.08; color: black; }
     </style>
 </head>
-<body id="body-tag" class="select-none relative">
-    
+<body id="body-tag">
     <div id="bg-layer"></div>
-
     <div id="main-overlay" class="p-8 flex flex-col justify-between">
         <div id="bg-car-number" class="absolute inset-0 flex items-center justify-center pointer-events-none" style="display: none;">
             <span id="bg-number-val" class="text-[40vw] font-black italic tracking-tighter leading-none text-white"></span>
+        </div>
+
+        <div id="massive-pit-alert" class="absolute top-28 left-1/2 transform -translate-x-1/2 z-40 hidden flex-col items-center justify-center pointer-events-none transition-opacity">
+            <div id="alert-box-inner" class="flex items-center gap-6">
+                <svg class="w-10 h-10 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                <span id="alert-text-main" class="text-6xl font-black italic tracking-tighter leading-none">BOX BOX</span>
+                <svg class="w-10 h-10 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            </div>
+            <div id="next-tire-info" class="mt-4 flex items-center gap-3 bg-black/80 px-6 py-2 rounded-2xl border border-white/20 shadow-2xl opacity-0 transition-opacity">
+                <span class="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">Next Tyres</span>
+                <div id="next-tire-badge" class="px-3 py-0.5 rounded-lg text-xs font-black italic uppercase">---</div>
+            </div>
+            <span id="alert-text-sub" class="text-white font-bold tracking-widest mt-2 uppercase text-[10px] opacity-60"></span>
         </div>
 
         <div class="relative z-50 flex justify-between items-center pb-2">
@@ -95,7 +97,7 @@
                     <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path></svg>
                 </div>
                 <div>
-                    <h1 class="text-base font-semibold text-white/90 tracking-wide">实时遥测 <span class="text-xs font-normal text-white/40 ml-1">Live</span></h1>
+                    <h1 class="text-base font-semibold text-white/90 tracking-wide text-shadow">实时遥测 <span class="text-xs font-normal text-white/40 ml-1">Live</span></h1>
                     <p id="track-name" class="text-xs font-medium text-white/40 mt-0.5 tracking-wider">等待赛道连接...</p>
                 </div>
             </div>
@@ -112,15 +114,13 @@
             </div>
             
             <div class="flex items-center gap-3 z-20">
-                <div id="pit-box" class="hidden px-4 py-1.5 rounded-full font-bold text-xs uppercase tracking-widest shadow-lg"></div>
-                <div id="mode" class="apple-pill px-4 py-2 text-[10px] font-bold text-white uppercase tracking-widest cursor-pointer" onclick="toggleTelemetry()">待机</div>
-                
-                <div class="apple-pill px-4 py-2 flex flex-col justify-center cursor-pointer group" onclick="openStrategyMenu()">
-                    <span class="text-[9px] font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/70 transition-colors">赛事策略</span>
+                <div id="mode" class="apple-pill px-4 py-2 text-[10px] font-bold text-white uppercase tracking-widest" onclick="toggleTelemetry()">待机</div>
+                <div class="apple-pill px-4 py-2 flex flex-col justify-center group" onclick="openStrategyMenu()">
+                    <span class="text-[9px] font-semibold text-white/40 uppercase tracking-wider transition-colors">赛事策略</span>
                     <span id="active-strategy" class="text-[11px] font-bold text-white/50 mt-0.5">无战术</span>
                 </div>
-                <div class="apple-pill px-4 py-2 flex flex-col justify-center cursor-pointer group" onclick="window.open('/setup', '_blank')">
-                    <span class="text-[9px] font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/70 transition-colors">车辆调校</span>
+                <div class="apple-pill px-4 py-2 flex flex-col justify-center group" onclick="window.open('/setup', '_blank')">
+                    <span class="text-[9px] font-semibold text-white/40 uppercase tracking-wider transition-colors">车辆调校</span>
                     <span class="text-[11px] font-bold text-white mt-0.5">Lab</span>
                 </div>
             </div>
@@ -133,9 +133,14 @@
                 <input type="checkbox" id="chk-rec" onchange="sendConfigCmd('toggle_rec', this.checked)">
                 <div class="slider"></div>
             </label>
-            <label class="toggle-switch">
+            <label class="toggle-switch mt-4">
                 <span class="text-[13px] font-medium text-white/90">自动保存最快圈</span>
                 <input type="checkbox" id="chk-save" onchange="sendConfigCmd('toggle_save', this.checked)">
+                <div class="slider"></div>
+            </label>
+            <label class="toggle-switch mt-4">
+                <span class="text-[13px] font-medium text-white/90">智能赛后复盘</span>
+                <input type="checkbox" id="chk-debrief" onchange="toggleAutoDebrief(this.checked)" checked>
                 <div class="slider"></div>
             </label>
         </div>
@@ -154,16 +159,16 @@
             
             <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-0 mt-8">
                 <div class="absolute right-[calc(50%+9rem)] flex flex-col items-end pb-4">
-                    <div id="speed" class="text-[7.5rem] font-bold lcd leading-none tracking-tight text-white drop-shadow-lg" style="font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;">0</div>
+                    <div id="speed" class="text-[7.5rem] font-bold lcd leading-none tracking-tight text-white drop-shadow-lg">0</div>
                     <div class="text-lg font-bold text-white/40 tracking-widest mt-1">KM/H</div>
                 </div>
-                <div id="gear" class="text-[16rem] font-bold lcd leading-none text-white drop-shadow-2xl" style="font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;">N</div>
+                <div id="gear" class="text-[16rem] font-bold lcd leading-none text-white drop-shadow-2xl">N</div>
             </div>
             
             <div class="flex flex-col gap-6 z-20">
                 <div class="apple-material p-5 w-72">
                     <div class="flex justify-between items-end border-b border-white/10 pb-2.5 mb-2.5 cursor-pointer group" onclick="openReplayMenu()">
-                        <span class="text-[10px] font-semibold text-white/40 uppercase tracking-widest group-hover:text-white transition-colors">个人最佳 <span class="ml-1 opacity-50">PB</span></span>
+                        <span class="text-[10px] font-semibold text-white/40 uppercase tracking-widest transition-colors">个人最佳 <span class="ml-1 opacity-50">PB</span></span>
                         <span id="lap-hist" class="text-lg font-bold lcd text-white/80">--:--.---</span>
                     </div>
                     <div class="flex justify-between items-end gap-4 mb-2">
@@ -216,7 +221,6 @@
                     <span id="fuel" class="text-3xl font-bold lcd text-white">--%</span>
                 </div>
             </div>
-            
             <div class="flex-1 flex flex-col justify-center mx-10 mt-2">
                 <div id="rpm-bar-bg" class="h-1.5 w-full bg-white/10 rounded-full">
                     <div id="rpm-bar" class="h-full bg-white rounded-full" style="width: 0%"></div>
@@ -226,17 +230,17 @@
                     <span id="car-name" class="text-[10px] font-semibold text-white/60 uppercase tracking-widest">---</span>
                 </div>
             </div>
-            
             <button id="rpm-val" class="text-4xl font-bold lcd text-white/60 hover:text-white transition-colors bg-transparent border-none p-0 focus:outline-none z-10 cursor-pointer text-right min-w-[100px]" onclick="toggleSettings()">0</button>
             
             <div id="settings-panel" class="panel bottom-[80px] right-8">
                 <p class="text-[11px] font-bold text-white/60 mb-4 uppercase tracking-widest border-b border-white/10 pb-2">系统设置</p>
                 <div class="mb-4 grid grid-cols-2 gap-2">
-                    <button class="strat-input hover:bg-white/10" onclick="setBg('none')">纯黑</button>
-                    <button class="strat-input hover:bg-white/10" onclick="setBg('dark gray')">深灰</button>
-                    <button class="strat-input hover:bg-white/10" onclick="setBg('carbon')">碳纤维</button>
-                    <button class="strat-input bg-white text-black font-semibold hover:bg-gray-200" onclick="setBg('light')">明亮</button>
-                    <button class="col-span-2 mt-2 bg-[#007aff] hover:bg-[#0056b3] text-white rounded-lg py-2 text-xs font-semibold transition-colors" onclick="openMappingMenu()">修正数据库</button>
+                    <button class="strat-input" onclick="setBg('none')">纯黑</button>
+                    <button class="strat-input" onclick="setBg('dark gray')">深灰</button>
+                    <button class="strat-input" onclick="setBg('carbon')">碳纤维</button>
+                    <button class="strat-input bg-white text-black font-semibold" onclick="setBg('light')">明亮</button>
+                    <button class="col-span-2 mt-2 bg-[#007aff] text-white rounded-lg py-2 text-xs font-semibold transition-colors" onclick="openMappingMenu()">修正数据库</button>
+                    <button id="btn-dyno" class="col-span-2 mt-1 bg-[#ff9f0a] text-black rounded-lg py-2 text-xs font-bold transition-colors" onclick="toggleDyno()">启动内置测功机 (Dyno)</button>
                 </div>
                 <div class="mb-4">
                     <p class="text-[10px] font-semibold text-white/40 mb-1.5 uppercase tracking-widest">专属车号水印</p>
@@ -244,7 +248,6 @@
                 </div>
                 <div><p class="text-[10px] font-semibold text-white/40 mb-1.5 uppercase tracking-widest">背景不透明度</p><input type="range" min="0" max="100" value="100" class="w-full h-1 bg-white/20 rounded-full appearance-none" oninput="setOpacity(this.value)"></div>
             </div>
-            
             <div id="character-container"><img id="char-img" src="黑high.png" alt="" onerror="this.style.display='none'"></div>
         </div>
     </div>
@@ -255,13 +258,11 @@
                 <h2 class="text-lg font-bold text-white tracking-tight">赛后复盘</h2>
                 <p class="text-[11px] text-white/40 uppercase tracking-widest mt-1">多维度物理诊断</p>
             </div>
-            <button onclick="closeDebrief()" class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-            </button>
+            <button onclick="closeDebrief()" class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all">&times;</button>
         </div>
         <div id="debrief-content" class="flex-1 overflow-y-auto p-6 space-y-5 custom-scrollbar"></div>
         <div class="p-6 pb-10">
-            <button onclick="closeDebrief()" class="w-full bg-white text-black font-bold rounded-xl py-3.5 text-[13px] hover:scale-[1.02] transition-transform">归档报告</button>
+            <button onclick="closeDebrief()" class="w-full bg-white text-black font-bold rounded-xl py-3.5 text-[13px]">归档报告</button>
         </div>
     </div>
 
@@ -274,21 +275,18 @@
                 </div>
                 <button onclick="document.getElementById('strategy-modal').style.display='none'" class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all">&times;</button>
             </div>
-            
             <div class="flex flex-col gap-6 flex-1 overflow-hidden">
                 <div>
                     <div class="flex justify-between items-end mb-3">
                         <h3 class="text-[11px] font-semibold text-white/50 uppercase tracking-widest">已存方案</h3>
-                        <button onclick="clearActiveStrategy()" class="text-[10px] text-[#ff453a] font-bold uppercase tracking-widest hover:text-[#ff6961]">清空当前战术</button>
+                        <button onclick="clearActiveStrategy()" class="text-[10px] text-[#ff453a] font-bold uppercase tracking-widest">清空当前战术</button>
                     </div>
                     <div id="strategy-list-container" class="flex flex-col gap-2 custom-scrollbar max-h-40 overflow-y-auto pr-2"></div>
                 </div>
-
                 <div class="bg-white/5 border border-white/10 rounded-xl p-5">
                     <div class="flex justify-between items-center mb-4">
                         <h3 class="text-[11px] font-semibold text-[#0ea5e9] uppercase tracking-widest">新建排兵布阵</h3>
                     </div>
-                    
                     <div class="flex gap-4 mb-5">
                         <div class="flex-1">
                             <label class="text-[10px] font-medium text-white/40 block mb-2 uppercase tracking-wider">赛事模式</label>
@@ -298,7 +296,6 @@
                             </select>
                         </div>
                     </div>
-
                     <div id="race-config" class="flex flex-col">
                         <div class="flex gap-4 mb-5">
                             <div class="flex-1">
@@ -316,7 +313,6 @@
                         </div>
                         <div id="stints-container" class="flex flex-col gap-2 mb-5"></div>
                     </div>
-
                     <div id="practice-config" class="hidden flex-col gap-2 mb-5">
                         <label class="text-[10px] font-medium text-white/40 block mb-2 uppercase tracking-wider">测试轮胎配方</label>
                         <select id="practice-tire" class="strat-input w-full bg-black/50">
@@ -327,20 +323,36 @@
                             <option value="全雨胎 (Wet)" class="text-[#0a84ff]">全雨胎 (W)</option>
                         </select>
                     </div>
-
-                    <button onclick="saveNewStrategy()" class="w-full bg-[#007aff] text-white font-bold rounded-lg py-3 text-[13px] hover:bg-[#0056b3] transition-colors">部署策略</button>
+                    <button onclick="saveNewStrategy()" class="w-full bg-[#007aff] text-white font-bold rounded-lg py-3 text-[13px]">部署策略</button>
                 </div>
             </div>
         </div>
     </div>
 
     <div id="replay-modal" class="modal-bg">
-        <div class="modal-content">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-xl font-bold text-white tracking-tight">历史记录</h2>
-                <button onclick="document.getElementById('replay-modal').style.display='none'" class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all">&times;</button>
+        <div class="modal-content finder-modal bg-black/80">
+            <div class="flex justify-between items-center border-b border-white/10 px-6 py-4 bg-white/5 shrink-0">
+                <h2 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                    <svg class="w-5 h-5 text-[#0a84ff]" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
+                    档案资源库 <span class="text-xs text-white/40 ml-2 font-normal">Vault Explorer</span>
+                </h2>
+                <button onclick="document.getElementById('replay-modal').style.display='none'" class="text-white/50 hover:text-white transition-colors">&times;</button>
             </div>
-            <div class="flex-1 overflow-y-auto custom-scrollbar pr-2" id="file-list-container"></div>
+            
+            <div class="flex flex-1 min-h-0">
+                <div class="w-[240px] border-r border-white/10 bg-black/20 flex flex-col h-full shrink-0">
+                    <div class="px-4 py-3 text-[10px] font-bold text-white/40 uppercase tracking-widest border-b border-white/5 shrink-0">赛道目录 (Locations)</div>
+                    <div id="vault-tree" class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1"></div>
+                </div>
+                
+                <div class="flex-1 flex flex-col h-full bg-transparent relative">
+                    <div class="px-6 py-3 border-b border-white/5 shrink-0 flex justify-between items-center bg-white/5">
+                        <span id="vault-path" class="text-xs font-semibold text-white/70 tracking-wider">未选择目录</span>
+                        <span id="vault-count" class="text-[10px] text-white/40 font-mono">0 Items</span>
+                    </div>
+                    <div id="file-list-container" class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2"></div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -348,7 +360,7 @@
         <div class="modal-content" style="width: 480px;">
             <div class="flex justify-between items-center mb-6">
                 <h2 class="text-lg font-bold text-white tracking-tight">数据库校准</h2>
-                <button onclick="document.getElementById('mapping-modal').style.display='none'" class="text-white/50 hover:text-white">&times;</button>
+                <button onclick="document.getElementById('mapping-modal').style.display='none'" class="text-white/50">&times;</button>
             </div>
             <div class="space-y-4">
                 <div class="bg-white/5 rounded-xl p-4 border border-white/5">
@@ -369,10 +381,41 @@
             <p class="text-[13px] text-white/80 font-medium leading-relaxed">系统在未录制状态下捕获了最快圈 <span id="ghost-time" class="text-white font-bold bg-white/10 px-1.5 py-0.5 rounded lcd"></span>。</p>
             <div class="flex gap-2 mt-4">
                 <button onclick="resolveGhost(true)" class="flex-1 bg-white text-black font-semibold rounded-lg py-2 text-xs">归档保存</button>
-                <button onclick="resolveGhost(false)" class="flex-1 bg-white/10 text-white hover:bg-white/20 font-medium rounded-lg py-2 text-xs">直接丢弃</button>
+                <button onclick="resolveGhost(false)" class="flex-1 bg-white/10 text-white font-medium rounded-lg py-2 text-xs">直接丢弃</button>
             </div>
         </div>
     </div>
+
+    <div id="tutorial-modal" class="modal-bg" style="z-index: 10000;">
+        <div class="modal-content" style="width: 560px;">
+            <div class="flex justify-between items-center border-b border-white/10 pb-4 mb-5">
+                <h2 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                    <svg class="w-5 h-5 text-[#0a84ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    系统向导 <span class="text-xs text-white/40 font-normal ml-1" id="tutorial-subtitle">Live Dashboard</span>
+                </h2>
+                <button onclick="closeTutorial()" class="text-white/50 transition-colors">&times;</button>
+            </div>
+            <div id="tutorial-body" class="text-[13px] text-white/70 space-y-4 mb-6 leading-relaxed">
+                <p><b class="text-white">欢迎进入 Pro 级实时遥测驾驶舱。</b></p>
+                <ul class="list-disc pl-5 space-y-2 mt-2">
+                    <li><b class="text-[#0a84ff]">底盘透视：</b>左侧为实时踏板行程、抓地力监控，右侧为轮胎热工况（温度/磨损）阵列。</li>
+                    <li><b class="text-[#34c759]">赛事策略：</b>点击右上角「赛事策略」，可配置进站与轮胎计划。系统将在比赛中自动计算耗油与磨损率，并在窗口期弹窗提示。</li>
+                    <li><b class="text-[#ffd60a]">数据落盘：</b>右上角待机/FM按钮可开启控制面板「全局录制」或「自动保存最快圈」。数据将自动存储至底层数据库，供赛后交叉对比。</li>
+                </ul>
+            </div>
+            <div class="flex justify-between items-center mt-auto border-t border-white/10 pt-4">
+                <label class="flex items-center gap-2 cursor-pointer group">
+                    <input type="checkbox" id="hide-tutorial-chk" class="hidden">
+                    <div class="w-4 h-4 rounded border border-white/30 flex items-center justify-center bg-black/50">
+                        <svg class="w-3 h-3 text-[#0a84ff] hidden check-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                    </div>
+                    <span class="text-[11px] text-white/50 uppercase tracking-widest font-bold">不再自动弹出</span>
+                </label>
+                <button onclick="closeTutorial()" class="bg-[#0a84ff] text-white font-bold py-2 px-6 rounded-lg text-xs shadow-lg">开始使用</button>
+            </div>
+        </div>
+    </div>
+    <style>#hide-tutorial-chk:checked + div { border-color: #0a84ff; background: rgba(10, 132, 255, 0.1); } #hide-tutorial-chk:checked + div .check-icon { display: block; }</style>
 
     <script>
         const ws = new WebSocket(`ws://${window.location.host}/ws`);
@@ -382,6 +425,9 @@
         
         let currentCarId = 0, currentTrackId = 0, currentMode = "FM", currentTrackName = "";
         let trackStrategies = [], activeStrategy = null, configToggleLock = false, isDebriefOpen = false;
+        
+        let lastKnownLap = 0;
+        let pitStateLocked = false; 
 
         function sendConfigCmd(cmd, val) { configToggleLock = true; if (ws.readyState === 1) ws.send(JSON.stringify({ cmd: cmd, val: val })); setTimeout(() => { configToggleLock = false; }, 1000); }
         function setDriverNumber(num) { const b = document.getElementById('bg-car-number'); if(num && num.trim()!==''){ document.getElementById('bg-number-val').innerText=num.trim(); b.style.display='flex'; } else { b.style.display='none'; } localStorage.setItem('dash_driver_number', num); }
@@ -391,6 +437,26 @@
         function sendPayloadCmd(cmd, payload) { if (ws.readyState === 1) ws.send(JSON.stringify({ cmd: cmd, payload: payload })); }
         function resolveGhost(keep) { sendCmd("resolve_ghost", keep); document.getElementById('ghost-modal').style.display = 'none'; }
 
+        // 测功机控制
+        let isDynoOn = false;
+        async function toggleDyno() {
+            isDynoOn = !isDynoOn;
+            try {
+                await fetch('/api/dyno', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({state: isDynoOn}) });
+                const btn = document.getElementById('btn-dyno');
+                if(isDynoOn) {
+                    btn.innerText = '关闭测功机 (Dyno Active)';
+                    btn.className = 'col-span-2 mt-1 bg-[#ff453a] text-white rounded-lg py-2 text-xs font-bold transition-colors animate-pulse shadow-[0_0_15px_rgba(255,69,58,0.5)]';
+                } else {
+                    btn.innerText = '启动内置测功机 (Dyno)';
+                    btn.className = 'col-span-2 mt-1 bg-[#ff9f0a] text-black rounded-lg py-2 text-xs font-bold transition-colors';
+                }
+            } catch(e) { alert("引擎连接失败"); }
+        }
+
+        // 复盘开关
+        function toggleAutoDebrief(val) { localStorage.setItem('dash_auto_debrief', val); }
+        
         async function fetchStrategies(track) {
             if (!track || track === "等待连接..." || track === "FH5_FreeRoam") return;
             try {
@@ -412,11 +478,7 @@
                 centerBug.style.opacity = '1';
             } else { 
                 el.innerText = formatStrategyPreview(activeStrategy); el.className = "text-[11px] font-bold text-[#34c759] mt-0.5"; 
-                if (activeStrategy.mode === 'practice') {
-                    centerBug.style.opacity = '0';
-                } else {
-                    centerBug.style.opacity = '1';
-                }
+                if (activeStrategy.mode === 'practice') centerBug.style.opacity = '0'; else centerBug.style.opacity = '1';
             }
         }
 
@@ -429,15 +491,8 @@
 
         function toggleStratMode() {
             const mode = document.getElementById('strat-mode').value;
-            if (mode === 'practice') {
-                document.getElementById('race-config').classList.add('hidden');
-                document.getElementById('practice-config').classList.remove('hidden');
-                document.getElementById('practice-config').classList.add('flex');
-            } else {
-                document.getElementById('race-config').classList.remove('hidden');
-                document.getElementById('practice-config').classList.add('hidden');
-                document.getElementById('practice-config').classList.remove('flex');
-            }
+            if (mode === 'practice') { document.getElementById('race-config').classList.add('hidden'); document.getElementById('practice-config').classList.remove('hidden'); document.getElementById('practice-config').classList.add('flex'); } 
+            else { document.getElementById('race-config').classList.remove('hidden'); document.getElementById('practice-config').classList.add('hidden'); document.getElementById('practice-config').classList.remove('flex'); }
         }
 
         function openStrategyMenu() {
@@ -452,13 +507,7 @@
                 trackStrategies.forEach((s, idx) => {
                     let isActive = activeStrategy && JSON.stringify(s) === JSON.stringify(activeStrategy);
                     let activeTag = isActive ? '<span class="bg-[#34c759] text-black text-[9px] font-bold px-2 py-0.5 rounded-full uppercase">执行中</span>' : `<span class="border border-white/20 text-white/50 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase">方案 ${idx+1}</span>`;
-                    listEl.innerHTML += `
-                        <div class="bg-white/5 border border-white/5 p-3 rounded-xl flex justify-between items-center hover:bg-white/10 transition-colors cursor-pointer group/item" onclick="selectStrategy(${idx})">
-                            <span class="text-[13px] font-medium text-white">${formatStrategyPreview(s)}</span>
-                            <div class="flex items-center gap-3">${activeTag}
-                                <button onclick="deleteStrategy(event, ${idx})" class="text-white/30 hover:text-[#ff453a] opacity-0 group-hover/item:opacity-100"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
-                            </div>
-                        </div>`;
+                    listEl.innerHTML += `<div class="bg-white/5 border border-white/5 p-3 rounded-xl flex justify-between items-center cursor-pointer group/item" onclick="selectStrategy(${idx})"><span class="text-[13px] font-medium text-white">${formatStrategyPreview(s)}</span><div class="flex items-center gap-3">${activeTag}<button onclick="deleteStrategy(event, ${idx})" class="text-white/30 hover:text-[#ff453a] opacity-0 group-hover/item:opacity-100"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button></div></div>`;
                 });
             }
         }
@@ -469,23 +518,15 @@
         function renderStintForm() {
             const stops = parseInt(document.getElementById('strat-stops').value), container = document.getElementById('stints-container'); container.innerHTML = '';
             for(let i=0; i<=stops; i++) {
-                container.innerHTML += `
-                    <div class="flex gap-3 items-center bg-black/40 p-2 rounded-lg border border-white/5">
-                        <span class="text-[10px] text-white/50 font-bold uppercase w-12 tracking-wider text-center">阶段 ${i+1}</span>
-                        <select class="strat-tire strat-input flex-1 bg-transparent border-none">
-                            <option value="软胎 (Soft)" class="text-[#ff453a]">软胎 (S)</option><option value="中性胎 (Medium)" class="text-[#ffd60a]" selected>中性胎 (M)</option><option value="硬胎 (Hard)" class="text-white">硬胎 (H)</option><option value="半雨胎 (Inters)" class="text-[#32d74b]">半雨胎 (I)</option><option value="全雨胎 (Wet)" class="text-[#0a84ff]">全雨胎 (W)</option>
-                        </select>
-                        <input type="number" class="strat-stint-laps strat-input w-20 text-center bg-black/50" placeholder="圈数" min="1">
-                    </div>`;
+                container.innerHTML += `<div class="flex gap-3 items-center bg-black/40 p-2 rounded-lg border border-white/5"><span class="text-[10px] text-white/50 font-bold uppercase w-12 tracking-wider text-center">阶段 ${i+1}</span><select class="strat-tire strat-input flex-1 bg-transparent border-none"><option value="软胎 (Soft)" class="text-[#ff453a]">软胎 (S)</option><option value="中性胎 (Medium)" class="text-[#ffd60a]" selected>中性胎 (M)</option><option value="硬胎 (Hard)" class="text-white">硬胎 (H)</option><option value="半雨胎 (Inters)" class="text-[#32d74b]">半雨胎 (I)</option><option value="全雨胎 (Wet)" class="text-[#0a84ff]">全雨胎 (W)</option></select><input type="number" class="strat-stint-laps strat-input w-20 text-center bg-black/50" placeholder="圈数" min="1"></div>`;
             }
         }
 
         async function saveNewStrategy() {
             const mode = document.getElementById('strat-mode').value;
             let payload = {};
-            if (mode === 'practice') {
-                payload = { mode: 'practice', tire: document.getElementById('practice-tire').value };
-            } else {
+            if (mode === 'practice') { payload = { mode: 'practice', tire: document.getElementById('practice-tire').value }; } 
+            else {
                 const laps = parseInt(document.getElementById('strat-laps').value), stops = parseInt(document.getElementById('strat-stops').value);
                 let stints = [], totalStintLaps = 0;
                 document.querySelectorAll('.strat-stint-laps').forEach((el, i) => { let sl = parseInt(el.value)||0; totalStintLaps+=sl; stints.push({ tire: document.querySelectorAll('.strat-tire')[i].value, laps: sl }); });
@@ -498,48 +539,152 @@
         function openMappingMenu() { document.getElementById('settings-panel').style.display = 'none'; document.getElementById('mapping-modal').style.display = 'flex'; document.getElementById('map-car-id').value = currentCarId; document.getElementById('map-track-id').value = currentTrackId; }
         function saveMapping(type) { const id = document.getElementById(`map-${type}-id`).value, name = document.getElementById(`map-${type}-name`).value; if (!name) return; sendPayloadCmd("update_mapping", { type: type, id: id, name: name, game: currentMode }); document.getElementById('mapping-modal').style.display = 'none'; }
 
+        // Vault Explorer
+        let vaultTreeData = {};
+        let currentSelectedPath = { track: null, car: null };
+        let expandedTracks = new Set();
+
         async function openReplayMenu() {
-            document.getElementById('replay-modal').style.display = 'flex'; const container = document.getElementById('file-list-container'); container.innerHTML = '<p class="text-[12px] text-white/30 mt-4 text-center">提取记录中...</p>';
+            document.getElementById('replay-modal').style.display = 'flex';
+            document.getElementById('file-list-container').innerHTML = '<p class="text-[12px] text-white/30 mt-4 text-center">读取文件系统中...</p>';
+            
             try {
-                const res = await fetch('/api/laps'); const data = await res.json();
-                if (data.files.length === 0) { container.innerHTML = '<p class="text-[12px] text-white/30 mt-4 text-center">暂无遥测数据落盘。</p>'; return; }
-                container.innerHTML = '';
+                const res = await fetch('/api/laps'); 
+                const data = await res.json();
+                
+                vaultTreeData = {};
                 data.files.forEach(file => {
-                    let parts = file.split(/[/\\]/); let fileName = parts.pop(); let timeStr = fileName.replace('.csv', '');
-                    let tag = '<span class="text-[9px] text-[#0ea5e9] font-bold border border-[#0ea5e9]/50 px-1.5 rounded uppercase tracking-widest">赛道最快</span>';
-                    if (timeStr.includes('RACE_')) { timeStr = timeStr.replace('RACE_', ''); tag = '<span class="text-[9px] text-black bg-[#ffd60a] font-bold px-1.5 rounded uppercase tracking-widest">正赛全场</span>'; } 
-                    else if (timeStr.includes('_LastBest')) { timeStr = timeStr.replace('_LastBest', ''); tag = '<span class="text-[9px] text-white/40 font-medium uppercase tracking-widest border border-white/20 px-1.5 rounded">前任最佳</span>'; } 
-                    else if (timeStr.includes('_Legacy')) { timeStr = timeStr.replace('_Legacy', ''); tag = '<span class="text-[9px] text-white/20 font-medium uppercase tracking-widest border border-white/10 px-1.5 rounded">已归档</span>'; }
-                    
-                    // 核心追加：销毁按钮 HTML
-                    container.innerHTML += `
-                        <div class="file-item group p-3 border-b border-white/5 flex justify-between items-center hover:bg-white/5 transition-colors cursor-pointer" onclick="window.open('/replay?file=${encodeURIComponent(file)}', '_blank')">
-                            <div class="flex flex-col">
-                                <span class="text-[10px] font-medium text-white/40 mb-1 tracking-wider">${parts.join(' / ')}</span>
-                                <div class="flex items-center gap-3"><span class="text-base font-bold text-white tracking-tight">${timeStr}</span>${tag}</div>
-                            </div>
-                            <button onclick="deleteLapRecord(event, '${file}')" class="text-white/30 hover:text-[#ff453a] opacity-0 group-hover:opacity-100 transition-opacity p-2">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                            </button>
-                        </div>`;
+                    let parts = file.split(/[/\\]/);
+                    if (parts.length >= 3) {
+                        let track = parts[0], car = parts[1];
+                        if (!vaultTreeData[track]) vaultTreeData[track] = {};
+                        if (!vaultTreeData[track][car]) vaultTreeData[track][car] = [];
+                        vaultTreeData[track][car].push(file);
+                    }
                 });
-            } catch (e) { container.innerHTML = '<p class="text-[12px] text-[#ff453a] mt-4 text-center">数据库连接失败。</p>'; }
+
+                renderVaultTree();
+                
+                const tracks = Object.keys(vaultTreeData).sort();
+                if (tracks.length > 0) {
+                    const firstTrack = tracks[0];
+                    const cars = Object.keys(vaultTreeData[firstTrack]).sort();
+                    if (cars.length > 0 && !currentSelectedPath.track) {
+                        selectVaultFolder(firstTrack, cars[0]);
+                    } else if (currentSelectedPath.track) {
+                        renderVaultFiles(); 
+                    }
+                } else {
+                    document.getElementById('file-list-container').innerHTML = '<div class="flex flex-col items-center justify-center h-full text-white/30"><p class="text-xs">库内暂无遥测数据落盘。</p></div>';
+                    document.getElementById('vault-path').innerText = '空';
+                    document.getElementById('vault-count').innerText = '0 Items';
+                }
+            } catch (e) { 
+                document.getElementById('file-list-container').innerHTML = '<p class="text-[12px] text-[#ff453a] mt-4 text-center">数据库连接失败。</p>'; 
+            }
         }
 
-        // 核心追加：主驾驶舱直接销毁档案
+        function toggleTrackFolder(track) {
+            if (expandedTracks.has(track)) expandedTracks.delete(track);
+            else expandedTracks.add(track);
+            renderVaultTree();
+        }
+
+        function selectVaultFolder(track, car) {
+            currentSelectedPath = { track, car };
+            expandedTracks.add(track);
+            renderVaultTree();
+            renderVaultFiles();
+        }
+
+        function renderVaultTree() {
+            const treeContainer = document.getElementById('vault-tree');
+            treeContainer.innerHTML = '';
+            
+            Object.keys(vaultTreeData).sort().forEach(track => {
+                const isExpanded = expandedTracks.has(track);
+                const cars = Object.keys(vaultTreeData[track]).sort();
+                
+                const trackEl = document.createElement('div');
+                trackEl.className = 'flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer hover:bg-white/5 text-white/80 transition-colors select-none';
+                trackEl.onclick = () => toggleTrackFolder(track);
+                trackEl.innerHTML = `
+                    <svg class="w-3.5 h-3.5 shrink-0 transition-transform ${isExpanded ? 'rotate-90 text-white/50' : 'text-white/30'}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                    <svg class="w-4 h-4 shrink-0 text-[#0a84ff]" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
+                    <span class="flex-1 min-w-0 text-[11px] font-bold tracking-wider truncate" title="${track}">${track}</span>
+                `;
+                treeContainer.appendChild(trackEl);
+
+                if (isExpanded) {
+                    const carListEl = document.createElement('div');
+                    carListEl.className = 'ml-5 pl-2 border-l border-white/10 flex flex-col gap-1 mt-1 mb-2';
+                    
+                    cars.forEach(car => {
+                        const isSelected = currentSelectedPath.track === track && currentSelectedPath.car === car;
+                        const carEl = document.createElement('div');
+                        carEl.className = `tree-item flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors select-none ${isSelected ? 'active' : 'text-white/50 hover:bg-white/10 hover:text-white'}`;
+                        carEl.onclick = () => selectVaultFolder(track, car);
+                        carEl.innerHTML = `
+                            <svg class="w-3.5 h-3.5 opacity-80 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
+                            <span class="flex-1 min-w-0 text-[10px] font-medium truncate" title="${car}">${car}</span>
+                        `;
+                        carListEl.appendChild(carEl);
+                    });
+                    treeContainer.appendChild(carListEl);
+                }
+            });
+        }
+
+        function renderVaultFiles() {
+            const container = document.getElementById('file-list-container');
+            const { track, car } = currentSelectedPath;
+            
+            if (!track || !car || !vaultTreeData[track] || !vaultTreeData[track][car]) return;
+
+            document.getElementById('vault-path').innerText = `${track} / ${car}`;
+            const files = vaultTreeData[track][car];
+            document.getElementById('vault-count').innerText = `${files.length} 个档案`;
+            
+            container.innerHTML = '';
+            
+            files.slice().reverse().forEach(file => {
+                let parts = file.split(/[/\\]/); 
+                let fileName = parts.pop(); 
+                let timeStr = fileName.replace('.csv', '');
+                
+                let tag = '<span class="text-[9px] text-[#0ea5e9] font-bold border border-[#0ea5e9]/50 px-1.5 rounded uppercase tracking-widest bg-[#0ea5e9]/10">赛道最快</span>';
+                if (timeStr.includes('RACE_')) { timeStr = timeStr.replace('RACE_', ''); tag = '<span class="text-[9px] text-black bg-[#ffd60a] font-bold px-1.5 rounded uppercase tracking-widest shadow-sm">正赛全场</span>'; } 
+                else if (timeStr.includes('_LastBest')) { timeStr = timeStr.replace('_LastBest', ''); tag = '<span class="text-[9px] text-white/40 font-medium uppercase tracking-widest border border-white/20 px-1.5 rounded">前任最佳</span>'; } 
+                else if (timeStr.includes('_Legacy')) { timeStr = timeStr.replace('_Legacy', ''); tag = '<span class="text-[9px] text-white/20 font-medium uppercase tracking-widest border border-white/10 px-1.5 rounded">已归档</span>'; }
+                
+                container.innerHTML += `
+                    <div class="group flex items-center justify-between p-3 rounded-xl border border-transparent hover:bg-white/5 hover:border-white/10 transition-all cursor-pointer" onclick="window.open('/replay?file=${encodeURIComponent(file)}', '_blank')">
+                        <div class="flex items-center gap-4 flex-1 min-w-0">
+                            <div class="w-10 h-10 rounded-lg bg-black/50 border border-white/10 flex items-center justify-center text-white/40 group-hover:text-[#0a84ff] transition-colors shadow-inner shrink-0">
+                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path></svg>
+                            </div>
+                            <div class="flex flex-col flex-1 min-w-0">
+                                <div class="flex items-center gap-2"><span class="text-[14px] font-bold text-white/90 tracking-tight font-mono truncate">${timeStr}</span></div>
+                                <span class="text-[9px] font-medium text-white/30 tracking-wider mt-0.5 truncate">CSV Telemetry Data</span>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-4 shrink-0">
+                            ${tag}
+                            <button onclick="deleteLapRecord(event, '${file}')" class="text-white/20 hover:text-[#ff453a] hover:bg-[#ff453a]/20 p-2 rounded-lg transition-all opacity-0 group-hover:opacity-100" title="销毁档案">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            </button>
+                        </div>
+                    </div>`;
+            });
+        }
+
         async function deleteLapRecord(event, file) {
             event.stopPropagation();
-            if (!confirm('警告：此操作将永久销毁该遥测物理档案，无法恢复。确认执行？')) return;
-            try {
-                const res = await fetch('/api/laps', {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path: file })
-                });
-                if (res.ok) openReplayMenu(); // 直接静默刷新列表
-            } catch (e) {
-                alert('销毁失败，数据库通道可能被占用。');
-            }
+            if (!confirm('警告：此操作将永久销毁该遥测物理档案。确认执行？')) return;
+            try { 
+                const res = await fetch('/api/laps', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: file }) }); 
+                if (res.ok) openReplayMenu();
+            } catch (e) {}
         }
 
         function renderDebrief(reports) {
@@ -547,53 +692,70 @@
             reports.forEach(r => {
                 let isPerfect = r.level === 'perfect'; let isWarn = r.level === 'warning';
                 let accentColor = isPerfect ? '#34c759' : isWarn ? '#ff9f0a' : '#ff453a';
-                let icon = isPerfect ? `<svg class="w-4 h-4 text-[#34c759]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>` : 
-                           isWarn ? `<svg class="w-4 h-4 text-[#ff9f0a]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>` : 
-                           `<svg class="w-4 h-4 text-[#ff453a]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
-                
-                container.innerHTML += `
-                    <div class="bg-white/5 border border-white/5 rounded-2xl p-4 shadow-sm relative overflow-hidden">
-                        <div class="absolute left-0 top-0 bottom-0 w-1 opacity-50" style="background-color: ${accentColor}"></div>
-                        <h3 class="text-[13px] font-bold text-white flex items-center gap-2 mb-2 ml-1">${icon} ${r.title}</h3>
-                        <p class="text-[12px] text-white/70 mb-4 ml-1 leading-relaxed">${r.phys}</p>
-                        <div class="space-y-3 bg-black/40 rounded-xl p-3 border border-white/5 ml-1">
-                            <div>
-                                <span class="text-[9px] font-bold text-[#0a84ff] uppercase tracking-widest block mb-1">调校指令</span>
-                                <p class="text-[11px] text-white/60 leading-relaxed">${r.setup}</p>
-                            </div>
-                            <div>
-                                <span class="text-[9px] font-bold text-[#bf5af2] uppercase tracking-widest block mb-1">车手指令</span>
-                                <p class="text-[11px] text-white/60 leading-relaxed">${r.driver}</p>
-                            </div>
-                        </div>
-                    </div>`;
+                let icon = isPerfect ? `<svg class="w-4 h-4 text-[#34c759]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>` : isWarn ? `<svg class="w-4 h-4 text-[#ff9f0a]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>` : `<svg class="w-4 h-4 text-[#ff453a]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
+                container.innerHTML += `<div class="bg-white/5 border border-white/5 rounded-2xl p-4 shadow-sm relative overflow-hidden"><div class="absolute left-0 top-0 bottom-0 w-1 opacity-50" style="background-color: ${accentColor}"></div><h3 class="text-[13px] font-bold text-white flex items-center gap-2 mb-2 ml-1">${icon} ${r.title}</h3><p class="text-[12px] text-white/70 mb-4 ml-1 leading-relaxed">${r.phys}</p><div class="space-y-3 bg-black/40 rounded-xl p-3 border border-white/5 ml-1"><div><span class="text-[9px] font-bold text-[#0a84ff] uppercase tracking-widest block mb-1">调校指令</span><p class="text-[11px] text-white/60 leading-relaxed">${r.setup}</p></div><div><span class="text-[9px] font-bold text-[#bf5af2] uppercase tracking-widest block mb-1">车手指令</span><p class="text-[11px] text-white/60 leading-relaxed">${r.driver}</p></div></div></div>`;
             });
             document.getElementById('debrief-drawer').classList.remove('translate-x-full'); isDebriefOpen = true;
         }
 
         function closeDebrief() { document.getElementById('debrief-drawer').classList.add('translate-x-full'); isDebriefOpen = false; sendCmd("clear_debrief", true); }
 
+        function getTireStyles(tireName) {
+            if (tireName.includes('软')) return { bg: '#ff453a', text: 'SOFT', color: 'white' };
+            if (tireName.includes('中')) return { bg: '#ffd60a', text: 'MEDIUM', color: 'black' };
+            if (tireName.includes('硬')) return { bg: '#ffffff', text: 'HARD', color: 'black' };
+            if (tireName.includes('半')) return { bg: '#32d74b', text: 'INTERS', color: 'black' };
+            if (tireName.includes('全')) return { bg: '#0a84ff', text: 'WET', color: 'white' };
+            return { bg: '#333', text: 'DRY', color: 'white' };
+        }
+
+        function parseLapTime(str) { if (!str || str.includes("--")) return 0; let parts = str.split(':'); if(parts.length < 2) return 0; return parseFloat(parts[0]) * 60 + parseFloat(parts[1]); }
+
         ws.onmessage = (event) => {
             try {
                 const d = JSON.parse(event.data);
                 currentCarId = d.CarID; currentTrackId = d.TrackID; currentMode = d.Mode;
 
+                // 🚀 核心：圈数防抖锁死 (抵御进站时 UDP 丢失冻结)
+                if (d.Lap > lastKnownLap && d.Lap !== 0) {
+                    lastKnownLap = d.Lap;
+                    pitStateLocked = false; 
+                }
+
                 if (d.Track !== currentTrackName && d.Track !== "等待连接...") { currentTrackName = d.Track; fetchStrategies(currentTrackName); }
-                if (!configToggleLock) { if (d.IsRec !== undefined) document.getElementById('chk-rec').checked = d.IsRec; if (d.AutoSave !== undefined) document.getElementById('chk-save').checked = d.AutoSave; }
-                if (d.Debrief && !isDebriefOpen) renderDebrief(d.Debrief);
+                if (!configToggleLock) { 
+                    if (d.IsRec !== undefined) document.getElementById('chk-rec').checked = d.IsRec; 
+                    if (d.AutoSave !== undefined) document.getElementById('chk-save').checked = d.AutoSave; 
+                }
+                
+                if (d.Debrief && !isDebriefOpen) {
+                    if (document.getElementById('chk-debrief').checked) renderDebrief(d.Debrief);
+                    else sendCmd("clear_debrief", true); 
+                }
 
                 if (d.GhostLap && document.getElementById('ghost-modal').style.display === 'none') { document.getElementById('ghost-time').innerText = d.GhostLap.time; document.getElementById('ghost-modal').style.display = 'block'; } 
                 else if (!d.GhostLap) { document.getElementById('ghost-modal').style.display = 'none'; }
 
                 if (d.IsRaceOn === 0) { modeBtn.innerText = "离线"; modeBtn.className = "apple-pill px-4 py-2 text-[10px] font-bold text-white/30 uppercase tracking-widest cursor-pointer"; } 
-                else {
-                    modeBtn.innerText = d.Mode;
-                    modeBtn.className = d.IsRec ? "apple-pill px-4 py-2 text-[10px] font-bold text-white uppercase tracking-widest cursor-pointer bg-[#ff453a]/80 border-[#ff453a]" : "apple-pill px-4 py-2 text-[10px] font-bold text-[#0a84ff] uppercase tracking-widest cursor-pointer bg-[#0a84ff]/20 border-[#0a84ff]/40";
-                }
+                else { modeBtn.innerText = d.Mode; modeBtn.className = d.IsRec ? "apple-pill px-4 py-2 text-[10px] font-bold text-white uppercase tracking-widest cursor-pointer bg-[#ff453a]/80 border-[#ff453a]" : "apple-pill px-4 py-2 text-[10px] font-bold text-[#0a84ff] uppercase tracking-widest cursor-pointer bg-[#0a84ff]/20 border-[#0a84ff]/40"; }
 
-                if (activeStrategy && activeStrategy.mode !== 'practice') {
+                let targetPitLap = -1;
+                let nextTire = null;
+                if (activeStrategy && activeStrategy.mode !== 'practice' && activeStrategy.stints && activeStrategy.stints.length > 1) {
+                    let accLaps = 0;
+                    for (let i=0; i<activeStrategy.stints.length-1; i++) {
+                        accLaps += parseInt(activeStrategy.stints[i].laps);
+                        if (d.Lap <= accLaps) { 
+                            targetPitLap = accLaps; 
+                            nextTire = activeStrategy.stints[i+1].tire;
+                            break; 
+                        }
+                    }
                     document.getElementById('pos-val').innerText = d.Position > 0 ? "P" + d.Position : "P-";
-                    document.getElementById('lap-val').innerHTML = activeStrategy && activeStrategy.total_laps ? `${d.Lap}<span class="text-[14px] text-white/40 font-bold ml-1">/${activeStrategy.total_laps}</span>` : d.Lap;
+                    document.getElementById('lap-val').innerHTML = activeStrategy.total_laps ? `${d.Lap}<span class="text-[14px] text-white/40 font-bold ml-1">/${activeStrategy.total_laps}</span>` : d.Lap;
+                } else {
+                    document.getElementById('pos-val').innerText = d.Position > 0 ? "P" + d.Position : "P-";
+                    document.getElementById('lap-val').innerText = d.Lap;
                 }
                 
                 document.getElementById('gear').innerText = d.Gear;
@@ -616,27 +778,69 @@
 
                 document.getElementById('accel-bar').style.height = d.Accel + "%"; document.getElementById('brake-bar').style.height = d.Brake + "%";
 
-                let isBox = false;
-                if (activeStrategy && activeStrategy.mode !== 'practice' && activeStrategy.stints && activeStrategy.stints.length > 1) {
-                    let accLaps = 0;
-                    for (let i=0; i<activeStrategy.stints.length-1; i++) { accLaps += parseInt(activeStrategy.stints[i].laps); if (d.Lap === accLaps) { isBox = true; break; } }
+                // 🚀 核心逻辑：智能赛道预测与防遮挡渲染
+                const massivePitAlert = document.getElementById('massive-pit-alert');
+                const alertBox = document.getElementById('alert-box-inner');
+                const alertText = document.getElementById('alert-text-main');
+                const alertSub = document.getElementById('alert-text-sub');
+                const nextTireInfo = document.getElementById('next-tire-info');
+                const nextTireBadge = document.getElementById('next-tire-badge');
+
+                let alertType = "NONE";
+                let bestLapSec = parseLapTime(d.BestLap) || parseLapTime(d.HistBestLap);
+                let currLapSec = parseLapTime(d.CurrentLap);
+                let isCritical = d.Pit || d.Fuel < 3.0 || Math.max(d.Wears.fl, d.Wears.fr, d.Wears.rl, d.Wears.rr) > 80;
+
+                if (isCritical) {
+                    alertType = "PIT_NOW";
+                } else if (targetPitLap > 0) {
+                    if (d.Lap === targetPitLap || pitStateLocked) {
+                        alertType = "BOX_BOX";
+                        pitStateLocked = true; // 锁死，直到跑完下一圈
+                    } else if (d.Lap === targetPitLap - 1 && bestLapSec > 0 && currLapSec > bestLapSec * 0.70) {
+                        alertType = "IN_WINDOW";
+                    }
                 }
 
-                const pb = document.getElementById('pit-box');
-                if (isBox) { pb.innerText = "BOX BOX"; pb.className = "px-5 py-1.5 rounded-full font-bold text-xs uppercase tracking-widest shadow-lg box-alert"; pb.style.display = "block"; } 
-                else if (d.Pit) { pb.innerText = "PIT NOW"; pb.className = "px-5 py-1.5 rounded-full font-bold text-xs uppercase tracking-widest shadow-lg pit-alert"; pb.style.display = "block"; } 
-                else { pb.style.display = "none"; }
+                if (alertType === "NONE") {
+                    massivePitAlert.classList.add('hidden');
+                    massivePitAlert.classList.remove('flex');
+                } else {
+                    massivePitAlert.classList.remove('hidden');
+                    massivePitAlert.classList.add('flex');
+                    
+                    if (alertType === "PIT_NOW") {
+                        alertBox.className = "bg-[#ff453a] text-white px-14 py-4 rounded-full shadow-[0_0_60px_rgba(255,69,58,0.7)] border-4 border-white/40 animate-pulse flex items-center gap-6";
+                        alertText.innerText = "PIT NOW";
+                        alertSub.innerText = "CRITICAL DAMAGE / FUEL LOW";
+                        nextTireInfo.style.opacity = '0';
+                    } else if (alertType === "BOX_BOX") {
+                        alertBox.className = "bg-[#ffd60a] text-black px-14 py-4 rounded-full shadow-[0_0_50px_rgba(255,214,10,0.6)] border-4 border-white/40 animate-pulse flex items-center gap-6";
+                        alertText.innerText = "BOX BOX";
+                        alertSub.innerText = "STRATEGY STOP";
+                        if (nextTire) {
+                            const styles = getTireStyles(nextTire);
+                            nextTireBadge.innerText = styles.text;
+                            nextTireBadge.style.backgroundColor = styles.bg;
+                            nextTireBadge.style.color = styles.color;
+                            nextTireInfo.style.opacity = '1';
+                        }
+                    } else if (alertType === "IN_WINDOW") {
+                        alertBox.className = "bg-[#ff9f0a]/90 backdrop-blur-md text-black px-10 py-3 rounded-full border-2 border-white/20 flex items-center gap-4";
+                        alertText.innerText = "PIT WINDOW OPEN";
+                        alertSub.innerText = "BOX AT END OF LAP";
+                        nextTireInfo.style.opacity = '0';
+                    }
+                }
 
                 if (d.ShiftNow) bodyTag.classList.add('shift-blink'); else bodyTag.classList.remove('shift-blink');
-                
                 if (d.FrontSlip) document.getElementById('brake-bar').classList.add('flash-pedal'); else document.getElementById('brake-bar').classList.remove('flash-pedal');
                 if (d.RearSlip) document.getElementById('accel-bar').classList.add('flash-pedal'); else document.getElementById('accel-bar').classList.remove('flash-pedal');
 
                 if (activeStrategy) {
                     let cTire = "";
-                    if (activeStrategy.mode === 'practice') {
-                        cTire = activeStrategy.tire;
-                    } else if (activeStrategy.stints && activeStrategy.stints.length > 0) {
+                    if (activeStrategy.mode === 'practice') { cTire = activeStrategy.tire; } 
+                    else if (activeStrategy.stints && activeStrategy.stints.length > 0) {
                         let sStart = 1;
                         for (let i=0; i<activeStrategy.stints.length; i++) { let sEnd = sStart + parseInt(activeStrategy.stints[i].laps); if (d.Lap >= sStart && d.Lap < sEnd) { cTire = activeStrategy.stints[i].tire; break; } sStart = sEnd; }
                         if (!cTire) cTire = activeStrategy.stints[activeStrategy.stints.length-1].tire;
@@ -658,16 +862,9 @@
 
                 const rpmBar = document.getElementById('rpm-bar'), pct = (d.RPM / d.MaxRPM) * 100;
                 rpmBar.style.width = Math.min(pct, 100) + "%";
-                if (pct > 92) {
-                    rpmBar.style.backgroundColor = '#ff453a';
-                    rpmBar.style.boxShadow = '0 0 15px 5px rgba(255,69,58,0.8)';
-                } else if (pct > 85) {
-                    rpmBar.style.backgroundColor = '#ffd60a';
-                    rpmBar.style.boxShadow = '0 0 10px 2px rgba(255,214,10,0.6)';
-                } else {
-                    rpmBar.style.backgroundColor = '#ffffff';
-                    rpmBar.style.boxShadow = 'none';
-                }
+                if (pct > 92) { rpmBar.style.backgroundColor = '#ff453a'; rpmBar.style.boxShadow = '0 0 15px 5px rgba(255,69,58,0.8)'; } 
+                else if (pct > 85) { rpmBar.style.backgroundColor = '#ffd60a'; rpmBar.style.boxShadow = '0 0 10px 2px rgba(255,214,10,0.6)'; } 
+                else { rpmBar.style.backgroundColor = '#ffffff'; rpmBar.style.boxShadow = 'none'; }
             } catch (err) {}
         };
 
@@ -689,7 +886,29 @@
         }
         function setOpacity(val) { document.getElementById('bg-layer').style.opacity = val/100; localStorage.setItem('dash_opacity', val); }
 
-        window.onload = () => { setBg(localStorage.getItem('dash_bg_style') || 'none'); setOpacity(localStorage.getItem('dash_opacity') || 100); setDriverNumber(localStorage.getItem('dash_driver_number') || ''); };
+        window.onload = () => { 
+            setBg(localStorage.getItem('dash_bg_style') || 'none'); 
+            setOpacity(localStorage.getItem('dash_opacity') || 100); 
+            setDriverNumber(localStorage.getItem('dash_driver_number') || ''); 
+            
+            if (localStorage.getItem('dash_auto_debrief') === 'false') {
+                document.getElementById('chk-debrief').checked = false;
+            }
+        };
+        
+        function checkTutorial() {
+            const tutorialKey = `hide_tutorial_index`;
+            if (localStorage.getItem(tutorialKey) !== 'true') {
+                document.getElementById('tutorial-modal').style.display = 'flex';
+            }
+        }
+
+        function closeTutorial() {
+            const tutorialKey = `hide_tutorial_index`;
+            if (document.getElementById('hide-tutorial-chk').checked) localStorage.setItem(tutorialKey, 'true');
+            document.getElementById('tutorial-modal').style.display = 'none';
+        }
+        setTimeout(checkTutorial, 600);
     </script>
 </body>
 </html>

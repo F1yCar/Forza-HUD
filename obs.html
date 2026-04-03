@@ -195,4 +195,91 @@
         connectWebSocket();
     </script>
 </body>
+<div id="tutorial-modal" class="modal-bg" style="z-index: 10000;">
+        <div class="modal-content" style="width: 560px;">
+            <div class="flex justify-between items-center border-b border-white/10 pb-4 mb-5">
+                <h2 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                    <svg class="w-5 h-5 text-[#0a84ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    系统向导 <span class="text-xs text-white/40 font-normal ml-1" id="tutorial-subtitle">Loading...</span>
+                </h2>
+                <button onclick="closeTutorial()" class="text-white/50 hover:text-white transition-colors">&times;</button>
+            </div>
+            <div id="tutorial-body" class="text-[13px] text-white/70 space-y-4 mb-6 leading-relaxed">
+                </div>
+            <div class="flex justify-between items-center mt-auto border-t border-white/10 pt-4">
+                <label class="flex items-center gap-2 cursor-pointer group">
+                    <input type="checkbox" id="hide-tutorial-chk" class="hidden">
+                    <div class="w-4 h-4 rounded border border-white/30 flex items-center justify-center group-hover:border-[#0a84ff] transition-colors bg-black/50">
+                        <svg class="w-3 h-3 text-[#0a84ff] hidden check-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                    </div>
+                    <span class="text-[11px] text-white/50 uppercase tracking-widest font-bold">不再自动弹出</span>
+                </label>
+                <button onclick="closeTutorial()" class="bg-[#0a84ff] hover:bg-[#007aff] text-white font-bold py-2 px-6 rounded-lg text-xs transition-colors shadow-lg">开始使用</button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        /* 引导弹窗复选框特效 */
+        #hide-tutorial-chk:checked + div { border-color: #0a84ff; background: rgba(10, 132, 255, 0.1); }
+        #hide-tutorial-chk:checked + div .check-icon { display: block; }
+    </style>
+
+    <script>
+        // 智能路由嗅探与文案库
+        const pageRoute = window.location.pathname.replace('/', '') || 'index';
+        const tutorialKey = `hide_tutorial_${pageRoute}`;
+        
+        const tutorials = {
+            'index': {
+                sub: 'Live Dashboard',
+                body: `
+                    <p><b class="text-white">欢迎进入 Pro 级实时遥测驾驶舱。</b></p>
+                    <ul class="list-disc pl-5 space-y-2 mt-2">
+                        <li><b class="text-[#0a84ff]">底盘透视：</b>左下角为实时踏板行程、抓地力监控，右下角为轮胎热工况（温度/磨损）阵列。</li>
+                        <li><b class="text-[#34c759]">赛事策略：</b>点击顶部「赛事策略」，可配置进站与轮胎计划。系统将在比赛中自动计算耗油与磨损率，并在窗口期弹窗提示 <span class="bg-[#ffd60a] text-black px-1 rounded text-[10px]">BOX BOX</span>。</li>
+                        <li><b class="text-[#ffd60a]">数据落盘：</b>右侧面板可开启「全局录制」或「自动保存最快圈」。数据将自动存储至底层数据库，供赛后交叉对比。</li>
+                    </ul>`
+            },
+            'setup': {
+                sub: 'Setup Lab',
+                body: `
+                    <p><b class="text-white">欢迎进入高级调校实验室。</b></p>
+                    <ul class="list-disc pl-5 space-y-2 mt-2">
+                        <li><b class="text-[#0a84ff]">逆向工程：</b>点击右侧「目标遥测挂载」，加载任意跑过的圈速档案。系统会提取极速与侧向G力，为你推演一套理论空力/悬挂的最佳目标值 (紫色虚线)。</li>
+                        <li><b class="text-[#34c759]">参数收敛：</b>调节左侧表单的弹簧、防倾杆数据，雷达图上的蓝色实线会实时形变，请使其尽可能贴合紫色推演线。</li>
+                        <li><b class="text-[#ff453a]">极值约束：</b>带 ⚠️ 标志的区域会动态读取底盘的物理极限。若数据缺失，请保持页面开启，在游戏中上赛道跑一圈，系统将自动抓取并更新极值。</li>
+                    </ul>`
+            },
+            'replay': {
+                sub: 'Telemetry Vault',
+                body: `
+                    <p><b class="text-white">欢迎进入多维遥测分析舱。</b></p>
+                    <ul class="list-disc pl-5 space-y-2 mt-2">
+                        <li><b class="text-[#0a84ff]">双轨交叉比对：</b>在顶部依次选择「基准」和「对比」档案，系统将基于绝对 GPS 距离轴强行对齐两圈数据，彻底消除时间轴误差。</li>
+                        <li><b class="text-[#34c759]">动态矩阵：</b>点击右侧「+ 新增数据通道」，可无限添加油门、滑移率、G力等物理监控轨。滑动下方时间轴，所有图表的十字光标将毫秒级同步。</li>
+                        <li><b class="text-[#ff453a]">物理销毁：</b>顶部下拉框旁的 🗑️ 图标可彻底从硬盘抹除废弃测试数据。操作不可逆，请严谨对待数据资产。</li>
+                    </ul>`
+            }
+        };
+
+        function checkTutorial() {
+            if (localStorage.getItem(tutorialKey) !== 'true') {
+                const data = tutorials[pageRoute] || tutorials['index'];
+                document.getElementById('tutorial-subtitle').innerText = data.sub;
+                document.getElementById('tutorial-body').innerHTML = data.body;
+                document.getElementById('tutorial-modal').style.display = 'flex';
+            }
+        }
+
+        function closeTutorial() {
+            const isChecked = document.getElementById('hide-tutorial-chk').checked;
+            if (isChecked) localStorage.setItem(tutorialKey, 'true'); // 物理写入不再提醒
+            document.getElementById('tutorial-modal').style.display = 'none';
+        }
+
+        // 延迟 600ms 弹出，避开页面初次渲染的性能尖峰
+        setTimeout(checkTutorial, 600);
+    </script>
+    ```
 </html>

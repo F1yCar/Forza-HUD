@@ -55,7 +55,7 @@ state = {
     "active_strategy": None,
     "pending_debrief": None
 }
-config = {"is_recording": False, "auto_save_best": False}
+config = {"is_recording": False, "auto_save_best": False, "is_dyno": False}
 
 fh5_db, fm_db, track_db, strategies_db, bounds_db = {}, {}, {}, {}, {}
 ref_dists, ref_times = [], []
@@ -378,7 +378,6 @@ def run_startup_cleanup():
                     try: shutil.move(f['path'], target_legacy)
                     except: pass
 
-# 核心修复：更新 DATA_MAP，引入世界绝对坐标
 DATA_MAP = [
     (0, 'i', "IsRaceOn"), (4, 'I', "TimestampMS"),
     (8, 'f', "EngineMaxRpm"), (12, 'f', "EngineIdleRpm"), (16, 'f', "CurrentEngineRpm"),
@@ -396,7 +395,7 @@ DATA_MAP = [
     (180, 'f', "TireCombinedSlip_FL"), (184, 'f', "TireCombinedSlip_FR"), (188, 'f', "TireCombinedSlip_RL"), (192, 'f', "TireCombinedSlip_RR"),
     (196, 'f', "SuspTravelMeters_FL"), (200, 'f', "SuspTravelMeters_FR"), (204, 'f', "SuspTravelMeters_RL"), (208, 'f', "SuspTravelMeters_RR"),
     (212, 'i', "CarOrdinal"), (216, 'i', "CarClass"), (220, 'i', "CarPerformanceIndex"), (224, 'i', "DrivetrainType"), (228, 'i', "NumCylinders"),
-    (232, 'f', "Position_X"), (236, 'f', "Position_Y"), (240, 'f', "Position_Z"), # <--- 引入真实 GPS
+    (232, 'f', "Position_X"), (236, 'f', "Position_Y"), (240, 'f', "Position_Z"), 
     (244, 'f', "Speed"), (248, 'f', "Power"), (252, 'f', "Torque"),
     (256, 'f', "TireTemp_FL"), (260, 'f', "TireTemp_FR"), (264, 'f', "TireTemp_RL"), (268, 'f', "TireTemp_RR"),
     (272, 'f', "Boost"), (276, 'f', "Fuel"), (280, 'f', "DistanceTraveled"), (284, 'f', "BestLapTime"), (288, 'f', "LastLapTime"), 
@@ -413,6 +412,48 @@ def optimize_cpu_affinity():
         cores = [os.cpu_count()-1] if os.cpu_count() < 12 else [os.cpu_count()-2, os.cpu_count()-1]
         p.cpu_affinity(cores)
     except: pass
+
+def get_local_ip():
+    """动态抓取真实的局域网 IP，方便移动端访问"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # 尝试连接公网 IP 来确定默认的本地路由网卡
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+def print_startup_banner():
+    """终端自检与向导管线"""
+    local_ip = get_local_ip()
+    vpn_note = " (如果使用了 VPN 导致该 IP 无法访问，请尝试 `ipconfig` 查找真实的无线网卡 IPv4 地址)" if local_ip != "127.0.0.1" else ""
+    
+    banner = f"""
+\033[1;36m=======================================================================\033[0m
+\033[1;32m      🏎️   APEX TELEMETRY ENGINE IS ONLINE (v3.1)   🏎️      \033[0m
+\033[1;36m=======================================================================\033[0m
+
+\033[1;33m[📡 数据接收引擎]\033[0m
+  - UDP 监听端口 : \033[1;32m{UDP_PORT}\033[0m
+  - \033[1m【必须设置】\033[0m 请在游戏中将「数据输出 (Data Out)」设为 \033[1;32m127.0.0.1:{UDP_PORT}\033[0m
+
+\033[1;33m[📱 移动端控制台 (供平板 / 手机在同一 WiFi 下访问)]\033[0m
+  - 🏁 实时驾驶舱 : \033[1;34mhttp://{local_ip}:8000/\033[0m {vpn_note}
+  - 🔧 调校车间   : \033[1;34mhttp://{local_ip}:8000/setup\033[0m
+  - 📊 数据复盘舱 : \033[1;34mhttp://{local_ip}:8000/replay\033[0m
+
+\033[1;33m[📺 桌面级转播信号 (供 OBS 捕获)]\033[0m
+  - 📺 HUD 悬浮窗 : \033[1;34mhttp://127.0.0.1:8000/obs\033[0m
+  - \033[1m【设置规格】\033[0m 在 OBS 浏览器源中，将宽度设为 \033[1m1920\033[0m，高度设为 \033[1m1080\033[0m。
+
+\033[1;31m[⚠️ 系统安全锁]\033[0m
+  1. 此终端窗口是整个系统的运算中枢，\033[1m绝对不能关闭\033[0m，可以最小化。
+  2. 所有的遥测数据和策略档案都会自动保存在本目录的 `bastlap/` 文件夹中。
+\033[1;36m=======================================================================\033[0m
+"""
+    print(banner)
 
 def udp_listener():
     global ref_dists, ref_times
@@ -548,6 +589,77 @@ def udp_listener():
             }
         except: pass
 
+@app.post("/api/dyno")
+async def toggle_dyno(req: Request):
+    data = await req.json()
+    config["is_dyno"] = data.get("state", False)
+    return {"success": True, "is_dyno": config["is_dyno"]}
+
+def dyno_simulator_thread():
+    """内部测功机 (Showcase Mode)：每 30 秒循环展示三种进站预警状态"""
+    import time, math
+    
+    while True:
+        time.sleep(0.04) # 锁定 25Hz
+        if not config.get("is_dyno"):
+            continue
+            
+        # 强行注入一个 2 停战术来激活黄灯预警逻辑
+        if not state.get("active_strategy") or state["active_strategy"].get("mode") != "dyno_test":
+            state["active_strategy"] = {
+                "mode": "dyno_test",
+                "total_laps": 5,
+                "stops": 1,
+                "stints": [{"tire": "软胎 (Soft)", "laps": 2}, {"tire": "中性胎 (Medium)", "laps": 3}]
+            }
+        
+        t = time.time()
+        cycle = t % 30.0 # 30秒一个循环剧本
+        
+        # 模拟基础视觉动态 (转速/车速/踏板)
+        gear = int(1 + (t % 5) / 1)
+        rpm = 5000 + int(math.sin(t * 5) * 3000)
+        speed = 100 + int(math.sin(t * 2) * 150)
+        if speed < 0: speed = 0
+        accel = 100 if math.sin(t) > 0 else 0
+        brake = 100 if math.sin(t) <= 0 else 0
+        
+        # 核心剧本编排
+        lap = 1
+        wear = 20.0
+        fuel = 80.0
+        curr_lap_time = 0.0
+        
+        if cycle < 10:
+            # [0-10秒] 第 1 圈末尾段：触发 PIT WINDOW OPEN (橙色预警)
+            lap = 1
+            curr_lap_time = 75.0 # BestLap 设为 100 秒，75 秒即达到 75% 进度，超过 70% 阈值亮窗
+        elif cycle < 20:
+            # [10-20秒] 第 2 圈 (策略进站圈)：触发 BOX BOX (黄色爆闪)
+            lap = 2
+            curr_lap_time = 10.0
+        else:
+            # [20-30秒] 第 3 圈：无视策略，轮胎磨损超标，触发 PIT NOW (红色绝境)
+            lap = 3
+            wear = 85.0 # > 80% 触发红警
+            fuel = 2.0  # < 3.0% 触发红警
+            curr_lap_time = 15.0
+
+        state["last_packet"].update({
+            "IsRaceOn": 1, "Mode": "DYNO", "Gear": str(max(1, gear)),
+            "Speed": int(speed), "RPM": int(rpm), "MaxRPM": 9000,
+            "Accel": accel, "Brake": brake, "Fuel": fuel,
+            "Car": "Dyno Showcase GT3", "Track": "Test Track",
+            "Temps": {"fl": 90, "fr": 90, "rl": 95, "rr": 95},
+            "Wears": {"fl": wear, "fr": wear, "rl": wear+2, "rr": wear+2},
+            "Lap": lap, 
+            "CurrentLap": f"01:{int(curr_lap_time):02d}.000", 
+            "BestLap": "01:40.000", # 基准圈 100 秒
+            "HistBestLap": "01:40.000",
+            "Position": 1, "RemLaps": 10,
+            "Pit": wear > 80 or fuel < 3.0
+        })
+
 @app.get("/api/strategy/{track}")
 async def get_strat(track: str): return {"strategies": strategies_db.get(track, [])}
 
@@ -637,6 +749,19 @@ async def get_files():
     files_info.sort(key=lambda x: x['mtime'], reverse=True)
     return {"files": [x['name'] for x in files_info]}
 
+@app.delete("/api/laps")
+async def delete_lap_file(req: Request):
+    data = await req.json()
+    filepath = data.get("path")
+    if filepath:
+        full_path = os.path.join(BASTLAP_DIR, filepath)
+        if os.path.exists(full_path) and BASTLAP_DIR in full_path:
+            try:
+                os.remove(full_path)
+                return {"success": True}
+            except: pass
+    return {"success": False}
+
 @app.get("/data/{path:path}")
 async def get_data(path: str):
     full_path = os.path.join(BASTLAP_DIR, path)
@@ -646,20 +771,6 @@ async def get_data(path: str):
 async def get_static_assets(filename: str):
     if filename.endswith((".png", ".jpg", ".gif", ".jpeg")) and os.path.exists(filename): return FileResponse(filename)
     return {"error": "Not found"}
-
-@app.delete("/api/laps")
-async def delete_lap_file(req: Request):
-    data = await req.json()
-    filepath = data.get("path")
-    if filepath:
-        # 绝对安全锁：限定只能删除 bastlap 目录下的文件
-        full_path = os.path.join(BASTLAP_DIR, filepath)
-        if os.path.exists(full_path) and BASTLAP_DIR in full_path:
-            try:
-                os.remove(full_path)
-                return {"success": True}
-            except: pass
-    return {"success": False}
 
 @app.websocket("/ws")
 async def ws_handler(ws: WebSocket):
@@ -704,5 +815,7 @@ async def ws_handler(ws: WebSocket):
 
 if __name__ == "__main__":
     optimize_cpu_affinity()
+    print_startup_banner()
     Thread(target=udp_listener, daemon=True).start()
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="error")
+    Thread(target=dyno_simulator_thread, daemon=True).start() # <--- 启动测功机后台挂起
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
