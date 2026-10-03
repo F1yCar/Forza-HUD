@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>F1y/Car 原始数据校验 (全量)</title>
+    <style>
+        body { background: #111; color: #0f0; font-family: monospace; padding: 20px; }
+        h1 { color: #fff; border-bottom: 2px solid #fff; margin-bottom: 20px;}
+        /* 改为 Flex 网格，方便平板一屏展示所有数据 */
+        #debug-list { display: flex; flex-wrap: wrap; gap: 8px; }
+        .data-item { 
+            display: flex; flex-direction: column; 
+            border: 1px solid #333; padding: 8px; 
+            background: #1a1a1a; width: 220px; border-radius: 4px;
+        }
+        .key { color: #888; font-size: 0.8rem; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .val { color: #fff; font-weight: bold; font-size: 1.2rem; }
+    </style>
+</head>
+<body>
+    <h1>UDP 原始数据全景监控</h1>
+    <div id="debug-list">等待数据中...</div>
+
+    <script>
+        const list = document.getElementById('debug-list');
+        const ws = new WebSocket(`ws://${window.location.host}/ws`);
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            let html = "";
+            for (let key in data) {
+                html += `<div class="data-item">
+                            <span class="key">${key}</span>
+                            <span class="val">${data[key]}</span>
+                         </div>`;
+            }
+            list.innerHTML = html;
+        };
+    </script>
+</body>
+</html>

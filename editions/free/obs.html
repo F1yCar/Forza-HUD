@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-    <title>OBS F1 TV Broadcast Overlay</title>
+    <title>OBS Broadcast Overlay - Free Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @supports (font: -apple-system-body) {
@@ -29,6 +29,9 @@
 
         .warn-active { animation: text-flash 0.15s infinite; color: #ff453a !important; }
         @keyframes text-flash { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(8px); }
+        .modal-content { background: rgba(20, 20, 25, 0.95); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; width: 560px; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8); max-height: 85vh; display: flex; flex-direction: column; }
     </style>
 </head>
 <body id="body-tag">
@@ -40,7 +43,7 @@
 
     <div id="error-log" class="absolute top-16 right-4 text-[#ff453a] text-[10px] font-mono bg-black/80 p-2 rounded hidden border border-[#ff453a]/50 max-w-[300px] break-words"></div>
 
-    <div id="broadcast-hud" class="absolute bottom-12 left-1/2 transform -translate-x-1/2 w-[850px] f1-panel flex flex-col transition-all duration-300 opacity-30 scale-95">
+    <div id="broadcast-hud" class="absolute bottom-12 left-1/2 transform -translate-x-1/2 w-[980px] f1-panel flex flex-col transition-all duration-300 opacity-30 scale-95">
         
         <div id="standby-mask" class="absolute inset-0 bg-black/50 z-50 flex items-center justify-center">
             <span class="text-white/50 font-bold tracking-widest uppercase text-xl">System Standby</span>
@@ -71,18 +74,47 @@
                 </div>
             </div>
             
-            <div class="flex flex-col justify-center px-6 flex-1 gap-1.5 bg-black/20">
-                <div class="flex justify-between items-center">
+            <div class="flex flex-col justify-center px-4 w-36 border-r border-white/10 bg-black/20 gap-1.5">
+                <div class="flex justify-between items-center w-full">
                     <span class="text-[10px] font-bold text-white/50 uppercase tracking-widest">LAP</span>
                     <span id="lap-val" class="text-base font-bold text-white lcd">--</span>
                 </div>
-                <div class="flex justify-between items-center">
+                <div class="flex justify-between items-center w-full">
                     <span class="text-[10px] font-bold text-white/50 uppercase tracking-widest">POS</span>
                     <span id="pos-val" class="text-base font-bold text-white lcd text-[#ffd60a]">P-</span>
                 </div>
-                <div class="flex justify-between items-center">
+                <div class="flex justify-between items-center w-full">
                     <span class="text-[10px] font-bold text-white/50 uppercase tracking-widest">DELTA</span>
-                    <span id="lap-delta" class="text-base font-bold text-white lcd">--.---</span>
+                    <span id="lap-delta" class="text-sm font-bold text-white lcd max-w-[70px] text-right truncate">--.---</span>
+                </div>
+            </div>
+
+            <div class="flex items-center px-3 w-44 border-r border-white/10 bg-black/30">
+                <div class="w-full">
+                    <div class="text-[9px] font-bold text-white/50 uppercase tracking-widest mb-2">STEER INPUT</div>
+                    <div class="relative h-10 rounded-md bg-[#0b1118] border border-white/10 overflow-hidden">
+                        <div class="absolute left-0 top-0 bottom-0 w-1/2 bg-gradient-to-r from-[#0a84ff]/25 to-transparent"></div>
+                        <div class="absolute right-0 top-0 bottom-0 w-1/2 bg-gradient-to-l from-[#30d158]/20 to-transparent"></div>
+                        <div class="absolute left-1/2 top-0 bottom-0 w-px bg-white/25"></div>
+                        <div id="steer-fill" class="absolute top-0 h-full bg-[#7dd3fc]/85 transition-all duration-75 ease-linear" style="left:50%;width:0%;"></div>
+                        <div id="steer-needle" class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1.5 h-7 rounded bg-white shadow-[0_0_10px_rgba(255,255,255,0.45)] transition-all duration-75 ease-linear" style="left:50%;"></div>
+                    </div>
+                    <div class="flex justify-between mt-1 text-[9px] text-white/35 font-bold tracking-widest"><span>L</span><span id="steer-pct" class="text-white/60">0%</span><span>R</span></div>
+                </div>
+            </div>
+
+            <div class="flex items-center px-3 w-36 bg-black/30">
+                <div class="w-full flex flex-col items-center">
+                    <div class="text-[9px] font-bold text-white/50 uppercase tracking-widest mb-2">G-METER</div>
+                    <div class="relative w-16 h-16 rounded-full border border-white/20 bg-white/5 overflow-hidden">
+                        <div class="absolute left-1/2 top-0 bottom-0 w-px bg-white/15"></div>
+                        <div class="absolute top-1/2 left-0 right-0 h-px bg-white/15"></div>
+                        <div class="absolute inset-0 border border-white/10 rounded-full m-2"></div>
+                        <div id="g-dot" class="absolute w-2.5 h-2.5 rounded-full bg-[#34c759] shadow-[0_0_10px_rgba(52,199,89,0.8)] transition-all duration-75 ease-linear" style="left:50%; top:50%; transform: translate(-50%, -50%);"></div>
+                    </div>
+                    <div class="mt-1 text-[8px] text-white/60 font-bold lcd leading-tight text-center whitespace-nowrap">
+                        LAT <span id="g-lat">0.00</span>g<br>LON <span id="g-long">0.00</span>g
+                    </div>
                 </div>
             </div>
         </div>
@@ -152,6 +184,36 @@
                     document.getElementById('accel-bar').style.width = d.Accel + "%"; 
                     document.getElementById('brake-bar').style.width = d.Brake + "%";
 
+                    const steer = Math.max(-100, Math.min(100, Number(d.SteerInput || 0)));
+                    const steerNeedle = document.getElementById('steer-needle');
+                    const steerFill = document.getElementById('steer-fill');
+                    const steerPct = document.getElementById('steer-pct');
+                    const steerMag = Math.abs(steer) / 100;
+                    steerNeedle.style.left = `${50 + steer * 0.5}%`;
+                    if (steer >= 0) {
+                        steerFill.style.left = '50%';
+                        steerFill.style.width = `${steer * 0.5}%`;
+                        steerFill.style.backgroundColor = '#7dd3fc';
+                    } else {
+                        steerFill.style.left = `${50 + steer * 0.5}%`;
+                        steerFill.style.width = `${Math.abs(steer) * 0.5}%`;
+                        steerFill.style.backgroundColor = '#7dd3fc';
+                    }
+                    steerFill.style.opacity = `${0.35 + steerMag * 0.65}`;
+                    steerNeedle.style.boxShadow = `0 0 ${8 + steerMag * 12}px rgba(255,255,255,${0.35 + steerMag * 0.4})`;
+                    steerPct.innerText = `${steer > 0 ? '+' : ''}${steer}%`;
+
+                    const gLat = Number(d.GForceLat || 0);
+                    const gLong = Number(d.GForceLong || 0);
+                    document.getElementById('g-lat').innerText = gLat.toFixed(2);
+                    document.getElementById('g-long').innerText = gLong.toFixed(2);
+                    const gDot = document.getElementById('g-dot');
+                    const gRange = 2.2;
+                    const normX = Math.max(-1, Math.min(1, -gLat / gRange));
+                    const normY = Math.max(-1, Math.min(1, gLong / gRange));
+                    gDot.style.left = `${50 + normX * 40}%`;
+                    gDot.style.top = `${50 + normY * 40}%`;
+
                     if (d.ShiftNow) bodyTag.classList.add('shift-blink'); else bodyTag.classList.remove('shift-blink');
                     
                     const brkLbl = document.getElementById('brk-lbl');
@@ -191,25 +253,47 @@
             };
         }
 
+        function checkTutorial() {
+            const tutorialKey = 'hide_tutorial_obs';
+            if (localStorage.getItem(tutorialKey) !== 'true') {
+                document.getElementById('tutorial-modal').style.display = 'flex';
+            }
+        }
+
+        function closeTutorial() {
+            const tutorialKey = 'hide_tutorial_obs';
+            if (document.getElementById('hide-tutorial-chk').checked) {
+                localStorage.setItem(tutorialKey, 'true');
+            }
+            document.getElementById('tutorial-modal').style.display = 'none';
+        }
+
         // 启动通讯
         connectWebSocket();
+        setTimeout(checkTutorial, 600);
     </script>
-</body>
-<div id="tutorial-modal" class="modal-bg" style="z-index: 10000;">
-        <div class="modal-content" style="width: 560px;">
+
+    <div id="tutorial-modal" class="modal-bg" style="z-index: 10000;">
+        <div class="modal-content">
             <div class="flex justify-between items-center border-b border-white/10 pb-4 mb-5">
                 <h2 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
                     <svg class="w-5 h-5 text-[#0a84ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    系统向导 <span class="text-xs text-white/40 font-normal ml-1" id="tutorial-subtitle">Loading...</span>
+                    系统向导 <span class="text-xs text-white/40 font-normal ml-1">OBS Overlay (Free)</span>
                 </h2>
                 <button onclick="closeTutorial()" class="text-white/50 hover:text-white transition-colors">&times;</button>
             </div>
-            <div id="tutorial-body" class="text-[13px] text-white/70 space-y-4 mb-6 leading-relaxed">
-                </div>
+            <div class="text-[13px] text-white/70 space-y-4 mb-6 leading-relaxed">
+                <p><b class="text-white">欢迎使用 Free 版 OBS 直播叠加层。</b></p>
+                <ul class="list-disc pl-5 space-y-2 mt-2">
+                    <li><b class="text-[#0a84ff]">自动连接：</b>页面会自动连接当前地址下的遥测 WebSocket（`/ws`）。</li>
+                    <li><b class="text-[#34c759]">叠加展示：</b>该页面仅保留直播常用指标（档位/速度/踏板/圈数/位置/Delta/转向/G 值）。</li>
+                    <li><b class="text-[#ffd60a]">使用建议：</b>请在 OBS 中将本页作为浏览器源，背景已默认透明，适合直接叠加画面。</li>
+                </ul>
+            </div>
             <div class="flex justify-between items-center mt-auto border-t border-white/10 pt-4">
                 <label class="flex items-center gap-2 cursor-pointer group">
                     <input type="checkbox" id="hide-tutorial-chk" class="hidden">
-                    <div class="w-4 h-4 rounded border border-white/30 flex items-center justify-center group-hover:border-[#0a84ff] transition-colors bg-black/50">
+                    <div class="w-4 h-4 rounded border border-white/30 flex items-center justify-center bg-black/50">
                         <svg class="w-3 h-3 text-[#0a84ff] hidden check-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
                     </div>
                     <span class="text-[11px] text-white/50 uppercase tracking-widest font-bold">不再自动弹出</span>
@@ -220,66 +304,8 @@
     </div>
 
     <style>
-        /* 引导弹窗复选框特效 */
         #hide-tutorial-chk:checked + div { border-color: #0a84ff; background: rgba(10, 132, 255, 0.1); }
         #hide-tutorial-chk:checked + div .check-icon { display: block; }
     </style>
-
-    <script>
-        // 智能路由嗅探与文案库
-        const pageRoute = window.location.pathname.replace('/', '') || 'index';
-        const tutorialKey = `hide_tutorial_${pageRoute}`;
-        
-        const tutorials = {
-            'index': {
-                sub: 'Live Dashboard',
-                body: `
-                    <p><b class="text-white">欢迎进入 Pro 级实时遥测驾驶舱。</b></p>
-                    <ul class="list-disc pl-5 space-y-2 mt-2">
-                        <li><b class="text-[#0a84ff]">底盘透视：</b>左下角为实时踏板行程、抓地力监控，右下角为轮胎热工况（温度/磨损）阵列。</li>
-                        <li><b class="text-[#34c759]">赛事策略：</b>点击顶部「赛事策略」，可配置进站与轮胎计划。系统将在比赛中自动计算耗油与磨损率，并在窗口期弹窗提示 <span class="bg-[#ffd60a] text-black px-1 rounded text-[10px]">BOX BOX</span>。</li>
-                        <li><b class="text-[#ffd60a]">数据落盘：</b>右侧面板可开启「全局录制」或「自动保存最快圈」。数据将自动存储至底层数据库，供赛后交叉对比。</li>
-                    </ul>`
-            },
-            'setup': {
-                sub: 'Setup Lab',
-                body: `
-                    <p><b class="text-white">欢迎进入高级调校实验室。</b></p>
-                    <ul class="list-disc pl-5 space-y-2 mt-2">
-                        <li><b class="text-[#0a84ff]">逆向工程：</b>点击右侧「目标遥测挂载」，加载任意跑过的圈速档案。系统会提取极速与侧向G力，为你推演一套理论空力/悬挂的最佳目标值 (紫色虚线)。</li>
-                        <li><b class="text-[#34c759]">参数收敛：</b>调节左侧表单的弹簧、防倾杆数据，雷达图上的蓝色实线会实时形变，请使其尽可能贴合紫色推演线。</li>
-                        <li><b class="text-[#ff453a]">极值约束：</b>带 ⚠️ 标志的区域会动态读取底盘的物理极限。若数据缺失，请保持页面开启，在游戏中上赛道跑一圈，系统将自动抓取并更新极值。</li>
-                    </ul>`
-            },
-            'replay': {
-                sub: 'Telemetry Vault',
-                body: `
-                    <p><b class="text-white">欢迎进入多维遥测分析舱。</b></p>
-                    <ul class="list-disc pl-5 space-y-2 mt-2">
-                        <li><b class="text-[#0a84ff]">双轨交叉比对：</b>在顶部依次选择「基准」和「对比」档案，系统将基于绝对 GPS 距离轴强行对齐两圈数据，彻底消除时间轴误差。</li>
-                        <li><b class="text-[#34c759]">动态矩阵：</b>点击右侧「+ 新增数据通道」，可无限添加油门、滑移率、G力等物理监控轨。滑动下方时间轴，所有图表的十字光标将毫秒级同步。</li>
-                        <li><b class="text-[#ff453a]">物理销毁：</b>顶部下拉框旁的 🗑️ 图标可彻底从硬盘抹除废弃测试数据。操作不可逆，请严谨对待数据资产。</li>
-                    </ul>`
-            }
-        };
-
-        function checkTutorial() {
-            if (localStorage.getItem(tutorialKey) !== 'true') {
-                const data = tutorials[pageRoute] || tutorials['index'];
-                document.getElementById('tutorial-subtitle').innerText = data.sub;
-                document.getElementById('tutorial-body').innerHTML = data.body;
-                document.getElementById('tutorial-modal').style.display = 'flex';
-            }
-        }
-
-        function closeTutorial() {
-            const isChecked = document.getElementById('hide-tutorial-chk').checked;
-            if (isChecked) localStorage.setItem(tutorialKey, 'true'); // 物理写入不再提醒
-            document.getElementById('tutorial-modal').style.display = 'none';
-        }
-
-        // 延迟 600ms 弹出，避开页面初次渲染的性能尖峰
-        setTimeout(checkTutorial, 600);
-    </script>
-    ```
+</body>
 </html>

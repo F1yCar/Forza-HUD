@@ -13,39 +13,48 @@ import psutil
 import shutil
 import time
 import statistics
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from pathlib import Path
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse
 from threading import Thread
 import uvicorn
 
 app = FastAPI()
 
-UDP_PORT = 5555
+UDP_PORT = int(os.getenv("FORZA_UDP_PORT", "5555"))
+WEB_PORT = int(os.getenv("FORZA_WEB_PORT", "8000"))
+WEB_HOST = os.getenv("FORZA_WEB_HOST", "0.0.0.0")
+BASE_DIR = Path(__file__).resolve().parent
+WEB_DIR = BASE_DIR / "web"
+ASSETS_DIR = WEB_DIR / "assets"
+DATA_DIR = Path(os.getenv("FORZA_DATA_DIR", str(BASE_DIR / "data"))).resolve()
 
-BASTLAP_DIR = "bastlap"
+BASTLAP_DIR = str(DATA_DIR / "bastlap")
 TEMP_DIR = os.path.join(BASTLAP_DIR, "temp_lap")
 STRATEGY_FILE = os.path.join(BASTLAP_DIR, "strategies.json")
 LAP_RECORDS_FILE = os.path.join(BASTLAP_DIR, "lap_records.log")
 
-SETUPS_DIR = "setups"
+SETUPS_DIR = str(DATA_DIR / "setups")
 SETUPS_SAVES_DIR = os.path.join(SETUPS_DIR, "saves")
 SETUPS_TEMP_DIR = os.path.join(SETUPS_DIR, "temp")
 BOUNDS_FILE = os.path.join(SETUPS_DIR, "cars_bounds.json")
 
 for d in [BASTLAP_DIR, TEMP_DIR, SETUPS_DIR, SETUPS_SAVES_DIR, SETUPS_TEMP_DIR]:
-    if not os.path.exists(d): os.makedirs(d)
+    os.makedirs(d, exist_ok=True)
 
 state = {
     "last_packet": {
-        "IsRaceOn": 0, "IsRec": False, "AutoSave": False,
+        "IsRaceOn": 0, "IsRec": False, "AutoSave": False, "IsSessionRec": False,
         "Car": "等待遥测数据...", "Track": "等待连接...",
         "Delta": "--", "Lap": 0, "CurrentLap": "--:--.---", "BestLap": "--:--.---",
         "HistBestLap": "--:--.---", "OptimalLap": "--:--.---",
         "GhostLap": None, "Mode": "FM", "Gear": "N", "Speed": 0, "RPM": 0, "MaxRPM": 1,
         "Fuel": 100.0, "RemLaps": 99, "Accel": 0, "Brake": 0, "Pit": False,
         "ShiftNow": False, "FrontSlip": False, "RearSlip": False,
+        "SteerInput": 0, "GForceLat": 0.0, "GForceLong": 0.0,
         "Temps": {"fl": 0, "fr": 0, "rl": 0, "rr": 0},
         "Wears": {"fl": 0, "fr": 0, "rl": 0, "rr": 0},
+        "ThrottleCeil": 100,
         "Position": 0,
         "Debrief": None
     }, 
@@ -55,20 +64,22 @@ state = {
     "active_strategy": None,
     "pending_debrief": None
 }
-config = {"is_recording": False, "auto_save_best": False, "is_dyno": False}
+config = {"is_recording": False, "auto_save_best": False, "is_dyno": False, "is_session_recording": False}
 
 fh5_db, fm_db, track_db, strategies_db, bounds_db = {}, {}, {}, {}, {}
 ref_dists, ref_times = [], []
+session_record_buffer = []
+session_record_meta = {"track": "UnknownTrack", "car": "UnknownCar", "mode": "FM", "start_ts": 0}
 
 def load_dbs():
     global fh5_db, fm_db, track_db, strategies_db, bounds_db
     try:
-        if os.path.exists('fh5_cars.json'):
-            with open('fh5_cars.json', 'r', encoding='utf-8') as f: fh5_db = json.load(f)
-        if os.path.exists('fm_cars.json'):
-            with open('fm_cars.json', 'r', encoding='utf-8') as f: fm_db = json.load(f)
-        if os.path.exists('Track_Name.json'):
-            with open('Track_Name.json', 'r', encoding='utf-8') as f: track_db = json.load(f)
+        if os.path.exists(DATA_DIR / 'fh5_cars.json'):
+            with open(DATA_DIR / 'fh5_cars.json', 'r', encoding='utf-8') as f: fh5_db = json.load(f)
+        if os.path.exists(DATA_DIR / 'fm_cars.json'):
+            with open(DATA_DIR / 'fm_cars.json', 'r', encoding='utf-8') as f: fm_db = json.load(f)
+        if os.path.exists(DATA_DIR / 'Track_Name.json'):
+            with open(DATA_DIR / 'Track_Name.json', 'r', encoding='utf-8') as f: track_db = json.load(f)
         if os.path.exists(STRATEGY_FILE):
             with open(STRATEGY_FILE, 'r', encoding='utf-8') as f: strategies_db = json.load(f)
         if os.path.exists(BOUNDS_FILE):
@@ -82,12 +93,27 @@ def save_strategies():
     except: pass
 
 def format_lap_time(seconds):
-    if math.isnan(seconds) or seconds <= 0: return "--:--.---"
+    if not math.isfinite(seconds) or seconds <= 0: return "--:--.---"
     m, s = divmod(seconds, 60)
     return f"{int(m):02d}:{s:06.3f}".replace(":", "-")
 
 def safe_filename(name):
-    return re.sub(r'[\\/*?:"<>|]', "_", str(name)).strip()
+    name = re.sub(r'[\\/*?:"<>|]', "_", str(name)).strip().rstrip(".")
+    return name or "Unknown"
+
+def resolve_file(root, filename, suffixes):
+    if not isinstance(filename, str) or not filename or "\\" in filename or ":" in filename:
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    relative = Path(filename)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    root = Path(root).resolve()
+    path = (root / relative).resolve()
+    if not path.is_relative_to(root):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    if path.suffix.lower() not in suffixes:
+        raise HTTPException(status_code=404, detail="File not found")
+    return path
 
 def calculate_optimal_lap(safe_track, safe_car):
     car_dir = os.path.join(BASTLAP_DIR, safe_filename(safe_track), safe_filename(safe_car))
@@ -95,7 +121,7 @@ def calculate_optimal_lap(safe_track, safe_car):
     files = []
     if os.path.exists(car_dir): files.extend(glob.glob(os.path.join(car_dir, "*.csv")))
     if os.path.exists(hist_dir): files.extend(glob.glob(os.path.join(hist_dir, "*.csv")))
-    valid_files = [f for f in files if "_TEMP_" not in f and "RACE_" not in f and os.path.isfile(f)]
+    valid_files = [f for f in files if not any(marker in os.path.basename(f) for marker in ("_TEMP_", "RACE_", "SESSION_")) and os.path.isfile(f)]
     if not valid_files: return "--:--.---"
         
     total_dist = 0
@@ -138,8 +164,8 @@ def analyze_race_data(data_rows):
     if not data_rows or len(data_rows) < 500: return None
     report = []
     
-    start_fuel = float(data_rows[0].get('Fuel', 100))
-    end_fuel = float(data_rows[-1].get('Fuel', 0))
+    start_fuel = float(data_rows[0].get('Fuel', 1)) * 100
+    end_fuel = float(data_rows[-1].get('Fuel', 0)) * 100
     if end_fuel > 4.0:
         report.append({
             "id": "fuel", "level": "warning", "title": "燃油死重过载",
@@ -235,7 +261,7 @@ def save_lap_data_thread(safe_track, safe_car, lap_time_sec, lap_data, temp_file
     car_dir = os.path.join(track_dir, safe_filename(safe_car))
     hist_dir = os.path.join(car_dir, "historical_legacy")
     for d in [track_dir, car_dir, hist_dir]:
-        if not os.path.exists(d): os.makedirs(d)
+        os.makedirs(d, exist_ok=True)
 
     old_last_pattern = os.path.join(car_dir, f"{safe_track}_{safe_car}_*_LastBastLap.csv")
     for f in glob.glob(old_last_pattern):
@@ -246,7 +272,7 @@ def save_lap_data_thread(safe_track, safe_car, lap_time_sec, lap_data, temp_file
 
     curr_best_pattern = os.path.join(car_dir, f"{safe_track}_{safe_car}_*.csv")
     for f in glob.glob(curr_best_pattern):
-        if os.path.isfile(f) and "_LastBastLap" not in f and "_TEMP_" not in f and "RACE_" not in f:
+        if os.path.isfile(f) and not any(marker in os.path.basename(f) for marker in ("_LastBastLap", "_TEMP_", "RACE_", "SESSION_")):
             new_path = f.replace(".csv", "_LastBastLap.csv")
             try: os.rename(f, new_path)
             except: pass
@@ -274,9 +300,9 @@ def load_historical_reference(safe_track, safe_car):
     car_dir = os.path.join(BASTLAP_DIR, safe_filename(safe_track), safe_filename(safe_car))
     
     for file_path in glob.glob(os.path.join(car_dir, "*.csv")):
-        if "LastBastLap" in file_path or "_TEMP_" in file_path or "RACE_" in file_path or not os.path.isfile(file_path): continue
+        filename = os.path.basename(file_path)
+        if any(marker in filename for marker in ("LastBastLap", "_TEMP_", "RACE_", "SESSION_")) or not os.path.isfile(file_path): continue
         try:
-            filename = os.path.basename(file_path)
             time_str = filename.replace('.csv', '').rsplit('_', 1)[-1]
             time_val = float(time_str.split('-')[0]) * 60 + float(time_str.split('-')[1]) if '-' in time_str else float(time_str)
             if time_val < best_time: best_time, best_file = time_val, file_path
@@ -308,6 +334,29 @@ def save_ghost_lap_thread(safe_track, safe_car, lap_time_sec, lap_data):
         state["ghost_lap"] = {"track": safe_track, "car": safe_car, "time": format_lap_time(lap_time_sec), "full_path": filepath, "lap_time_sec": lap_time_sec}
     except: pass
 
+def save_session_record_thread(safe_track, safe_car, mode, rows, start_ts=0):
+    if not rows:
+        return
+    track_dir = os.path.join(BASTLAP_DIR, safe_filename(safe_track))
+    car_dir = os.path.join(track_dir, safe_filename(safe_car))
+    for d in [track_dir, car_dir]:
+        if not os.path.exists(d):
+            os.makedirs(d)
+
+    t = datetime.datetime.fromtimestamp(start_ts) if start_ts else datetime.datetime.now()
+    stamp = t.strftime('%Y%m%d_%H%M%S')
+    filename = f"SESSION_{safe_filename(mode)}_{stamp}.csv"
+    filepath = os.path.join(car_dir, filename)
+
+    try:
+        keys = list(rows[0].keys())
+        with open(filepath, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=keys)
+            writer.writeheader()
+            writer.writerows(rows)
+    except:
+        pass
+
 def run_startup_cleanup():
     old_hist = os.path.join(BASTLAP_DIR, "historical_legacy")
     dirs_to_scan = [BASTLAP_DIR]
@@ -315,7 +364,7 @@ def run_startup_cleanup():
     
     for d in dirs_to_scan:
         for f in os.listdir(d):
-            if not f.endswith(".csv") or "_TEMP_" in f or "RACE_" in f: continue
+            if not f.endswith(".csv") or "_TEMP_" in f or "RACE_" in f or "SESSION_" in f: continue
             filepath = os.path.join(d, f)
             if not os.path.isfile(filepath): continue
             clean_name = f.replace(".csv", "").replace("_LastBastLap", "").replace("_Legacy", "")
@@ -346,7 +395,7 @@ def run_startup_cleanup():
             groups = {}
             for filepath in glob.glob(os.path.join(car_path, "*.csv")):
                 filename = os.path.basename(filepath)
-                if "_TEMP_" in filename or "RACE_" in filename: continue
+                if "_TEMP_" in filename or "RACE_" in filename or "SESSION_" in filename: continue
                 clean_name = filename.replace(".csv", "").replace("_LastBastLap", "").replace("_Legacy", "")
                 parts = clean_name.rsplit('_', 2)
                 if len(parts) != 3: continue
@@ -406,6 +455,162 @@ DATA_MAP = [
     (327, 'i', "TrackOrdinal")
 ]
 
+def get_packet_value(packet, raw, name, default=0):
+    # FH4/FH5 324-byte packet has dash block shifted by +12 bytes
+    dash_offset = 12 if len(raw) == 324 else 0
+    for offset, fmt, field_name in DATA_MAP:
+        if field_name == name:
+            # 对 324 包，Dash 区字段优先走 +12 偏移读取，不能回退到未偏移值
+            if dash_offset == 12 and offset >= 232:
+                if offset >= 311:
+                    return default
+                shifted_offset = offset + dash_offset
+                size = struct.calcsize('<' + fmt)
+                if len(raw) >= shifted_offset + size:
+                    val = struct.unpack('<' + fmt, raw[shifted_offset:shifted_offset + size])[0]
+                    return round(val, 5) if fmt == 'f' else val
+                return default
+            if name in packet:
+                return packet.get(name, default)
+
+            # 一般情况或兜底：按原始偏移读
+            size = struct.calcsize('<' + fmt)
+            if len(raw) >= offset + size:
+                val = struct.unpack('<' + fmt, raw[offset:offset + size])[0]
+                return round(val, 5) if fmt == 'f' else val
+            return default
+
+    return default
+
+def build_full_session_row(packet, raw, mode, car_name, track_name, lap_num, throttle_ceil, steer_pct, g_lat, g_long):
+    row = {
+        "Mode": mode,
+        "Car": car_name,
+        "Track": track_name,
+        "Lap": int(lap_num or 0),
+        "ThrottleCeil": int(throttle_ceil),
+        "SteerInputPct": int(steer_pct),
+        "GForceLat": float(g_lat),
+        "GForceLong": float(g_long)
+    }
+    for _, _, field_name in DATA_MAP:
+        row[field_name] = get_packet_value(packet, raw, field_name, 0)
+    return row
+
+def predict_throttle_ceiling(packet, raw):
+    try:
+        slip_fl = float(get_packet_value(packet, raw, "TireCombinedSlip_FL", 0) or 0)
+        slip_fr = float(get_packet_value(packet, raw, "TireCombinedSlip_FR", 0) or 0)
+        slip_rl = float(get_packet_value(packet, raw, "TireCombinedSlip_RL", 0) or 0)
+        slip_rr = float(get_packet_value(packet, raw, "TireCombinedSlip_RR", 0) or 0)
+        front_slip = max(slip_fl, slip_fr)
+        rear_slip = max(slip_rl, slip_rr)
+
+        drivetrain = int(get_packet_value(packet, raw, "DrivetrainType", 1) or 1)
+        if drivetrain == 0:       # FWD
+            driven_slip = front_slip
+        elif drivetrain == 1:     # RWD
+            driven_slip = rear_slip
+        else:                     # AWD / 其他
+            driven_slip = max((front_slip + rear_slip) * 0.5, front_slip * 0.8, rear_slip * 0.8)
+
+        speed_mps = float(get_packet_value(packet, raw, "Speed", 0) or 0)
+        if speed_mps <= 0:
+            vx = float(packet.get("Velocity_X", 0.0))
+            vy = float(packet.get("Velocity_Y", 0.0))
+            vz = float(packet.get("Velocity_Z", 0.0))
+            speed_mps = math.sqrt(vx * vx + vy * vy + vz * vz)
+        speed_kmh = speed_mps * 3.6
+
+        gear_raw = int(get_packet_value(packet, raw, "Gear", 11) or 11)
+        gear = 1 if gear_raw in [0, 11] else max(1, gear_raw)
+        acc_pct = float(get_packet_value(packet, raw, "Accel", 0) or 0) / 2.55
+        torque = abs(float(get_packet_value(packet, raw, "Torque", 0) or 0))
+        power = abs(float(get_packet_value(packet, raw, "Power", 0) or 0))
+
+        rear_temp_rl_f = float(get_packet_value(packet, raw, "TireTemp_RL", 32) or 32)
+        rear_temp_rr_f = float(get_packet_value(packet, raw, "TireTemp_RR", 32) or 32)
+        rear_temp_c = ((rear_temp_rl_f + rear_temp_rr_f) * 0.5 - 32.0) * 5.0 / 9.0
+
+        g_lat = abs(float(packet.get("Accel_X", 0.0)) / 9.81)
+
+        # 目标滑移窗口（更偏向冲圈速，而不是保守防打滑）
+        if speed_kmh < 60:
+            target_min, target_max = 1.02, 1.28
+        elif speed_kmh < 120:
+            target_min, target_max = 0.97, 1.20
+        else:
+            target_min, target_max = 0.90, 1.10
+
+        center = (target_min + target_max) * 0.5
+        half_window = max(0.05, (target_max - target_min) * 0.5)
+
+        # 以滑移窗口为主导：窗口内鼓励更激进油门
+        if driven_slip < target_min:
+            under_ratio = (target_min - driven_slip) / max(target_min, 0.01)
+            ceil = 92 + min(12, under_ratio * 30)
+            if acc_pct < 60:
+                ceil += 4
+        elif driven_slip <= target_max:
+            deviation = abs(driven_slip - center) / half_window
+            ceil = 96 - min(10, deviation * 8)
+            if acc_pct > 70 and g_lat < 1.0:
+                ceil += 3
+        else:
+            over_ratio = (driven_slip - target_max) / max(target_max, 0.01)
+            ceil = 88 - min(55, over_ratio * 120)
+
+        # 修正项：保留但降低权重，避免再次过度保守
+        penalty = 0.0
+
+        if speed_kmh < 45 and gear <= 2:
+            penalty += 4
+        elif speed_kmh < 80 and gear <= 3:
+            penalty += 2
+
+        torque_scale = min(1.0, torque / 1000.0)
+        if speed_kmh < 50:
+            penalty += 4.0 * torque_scale
+        elif speed_kmh < 90:
+            penalty += 2.5 * torque_scale
+
+        if rear_temp_c < 60:
+            penalty += 6
+        elif rear_temp_c < 72:
+            penalty += 2
+        elif rear_temp_c > 112:
+            penalty += 8
+        elif rear_temp_c > 102:
+            penalty += 4
+
+        if g_lat > 1.45:
+            penalty += 8
+        elif g_lat > 1.2:
+            penalty += 5
+        elif g_lat > 0.9:
+            penalty += 2
+
+        if speed_kmh < 70 and power > 320000:
+            penalty += 2
+
+        # AWD 更敢给，FWD 略保守，RWD 中性
+        if drivetrain == 2:
+            penalty -= 2
+        elif drivetrain == 0:
+            penalty += 1
+
+        ceil -= penalty
+
+        # 仅在明显过滑时硬限制
+        if driven_slip > target_max + 0.70 and acc_pct > 85:
+            ceil = min(ceil, 35)
+        elif driven_slip > target_max + 0.45 and acc_pct > 80:
+            ceil = min(ceil, 45)
+
+        return int(max(20, min(100, round(ceil))))
+    except:
+        return 100
+
 def optimize_cpu_affinity():
     try:
         p = psutil.Process(os.getpid())
@@ -437,30 +642,29 @@ def print_startup_banner():
 
 \033[1;33m[📡 数据接收引擎]\033[0m
   - UDP 监听端口 : \033[1;32m{UDP_PORT}\033[0m
-  - \033[1m【必须设置】\033[0m 请在游戏中将「数据输出 (Data Out)」设为 \033[1;32m127.0.0.1:{UDP_PORT}\033[0m
+  - \033[1m【同机运行】\033[0m 请在游戏中将「数据输出 (Data Out)」设为 \033[1;32m127.0.0.1:{UDP_PORT}\033[0m
 
 \033[1;33m[📱 移动端控制台 (供平板 / 手机在同一 WiFi 下访问)]\033[0m
-  - 🏁 实时驾驶舱 : \033[1;34mhttp://{local_ip}:8000/\033[0m {vpn_note}
-  - 🔧 调校车间   : \033[1;34mhttp://{local_ip}:8000/setup\033[0m
-  - 📊 数据复盘舱 : \033[1;34mhttp://{local_ip}:8000/replay\033[0m
+  - 🏁 实时遥测 : \033[1;34mhttp://{local_ip}:{WEB_PORT}/\033[0m {vpn_note}
+  - 🔧 调校车间   : \033[1;34mhttp://{local_ip}:{WEB_PORT}/setup\033[0m
+  - 📊 数据复盘舱 : \033[1;34mhttp://{local_ip}:{WEB_PORT}/replay\033[0m
 
-\033[1;33m[📺 桌面级转播信号 (供 OBS 捕获)]\033[0m
-  - 📺 HUD 悬浮窗 : \033[1;34mhttp://127.0.0.1:8000/obs\033[0m
+\033[1;33m[📺 转播视角 (供 OBS 捕获)]\033[0m
+  - 📺 HUD 悬浮窗 : \033[1;34mhttp://127.0.0.1:{WEB_PORT}/obs\033[0m
   - \033[1m【设置规格】\033[0m 在 OBS 浏览器源中，将宽度设为 \033[1m1920\033[0m，高度设为 \033[1m1080\033[0m。
 
 \033[1;31m[⚠️ 系统安全锁]\033[0m
   1. 此终端窗口是整个系统的运算中枢，\033[1m绝对不能关闭\033[0m，可以最小化。
-  2. 所有的遥测数据和策略档案都会自动保存在本目录的 `bastlap/` 文件夹中。
+  2. 所有的遥测数据和策略档案都会自动保存在`{BASTLAP_DIR}` 文件夹中。
 \033[1;36m=======================================================================\033[0m
 """
     print(banner)
 
 def udp_listener():
-    global ref_dists, ref_times
+    global ref_dists, ref_times, session_record_buffer, session_record_meta
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("0.0.0.0", UDP_PORT))
     load_dbs()
-    run_startup_cleanup()
 
     current_lap_buffer = []
     race_session_buffer = [] 
@@ -474,11 +678,12 @@ def udp_listener():
     while True:
         try:
             raw, _ = sock.recvfrom(1024)
-            if len(raw) < 311: continue
+            if len(raw) < 232: continue
+            is_fm = len(raw) >= 331
             
-            is_race_on = struct.unpack('<I', raw[0:4])[0]
+            is_race_on = struct.unpack('<i', raw[0:4])[0] > 0
             
-            if is_race_on == 0:
+            if not is_race_on:
                 if state.get("last_packet"): state["last_packet"]["IsRaceOn"] = 0
                 current_lap_buffer.clear()
                 continue
@@ -490,10 +695,94 @@ def udp_listener():
                     val = struct.unpack('<' + fmt, raw[offset:offset+size])[0]
                     packet[name] = round(val, 5) if fmt == 'f' else val
 
+            # FH5 只保留基础解析与推送，不进入 FM 的赛道/策略/圈速管线
+            if not is_fm:
+                car_id = packet.get("CarOrdinal", 0)
+                car_name = fh5_db.get(str(car_id), f"Car_{car_id}")
+                throttle_ceil = predict_throttle_ceiling(packet, raw)
+                steer_raw = int(get_packet_value(packet, raw, "Steer", 0) or 0)
+                steer_pct = int(max(-100, min(100, round(steer_raw / 1.27))))
+                g_lat = round(float(packet.get("Accel_X", 0.0)) / 9.81, 3)
+                g_long = round(float(packet.get("Accel_Z", 0.0)) / 9.81, 3)
+
+                fh_lap_raw = get_packet_value(packet, raw, "LapNumber", 0)
+                fh_lap_num = int(fh_lap_raw) + 1 if fh_lap_raw is not None else 0
+                fh_curr_lap_sec = float(get_packet_value(packet, raw, "CurrentLapTime", 0) or 0)
+                fh_best_lap_sec = float(get_packet_value(packet, raw, "BestLapTime", 0) or 0)
+                fh_curr_lap = format_lap_time(fh_curr_lap_sec).replace("-", ":")
+                fh_best_lap = format_lap_time(fh_best_lap_sec).replace("-", ":")
+
+                speed_mps = get_packet_value(packet, raw, "Speed", None)
+                if speed_mps is None:
+                    vx = float(packet.get("Velocity_X", 0.0))
+                    vy = float(packet.get("Velocity_Y", 0.0))
+                    vz = float(packet.get("Velocity_Z", 0.0))
+                    speed_mps = math.sqrt(vx * vx + vy * vy + vz * vz)
+
+                acc = get_packet_value(packet, raw, "Accel", 0) / 2.55
+                brk = get_packet_value(packet, raw, "Brake", 0) / 2.55
+                front_slip = (packet.get("TireCombinedSlip_FL", 0) > 1.2 or packet.get("TireCombinedSlip_FR", 0) > 1.2) and brk > 15
+                rear_slip = (packet.get("TireCombinedSlip_RL", 0) > 1.5 or packet.get("TireCombinedSlip_RR", 0) > 1.5) and acc > 30
+
+                state["last_packet"] = {
+                    "IsRaceOn": 1,
+                    "Gear": 'R' if get_packet_value(packet, raw, "Gear", 11) == 0 else ('N' if get_packet_value(packet, raw, "Gear", 11) == 11 else str(get_packet_value(packet, raw, "Gear", "N"))),
+                    "Speed": int(float(speed_mps) * 3.6),
+                    "RPM": int(packet.get("CurrentEngineRpm", 0)),
+                    "MaxRPM": int(packet.get("EngineMaxRpm", 1)),
+                    "Accel": int(acc),
+                    "Brake": int(brk),
+                    "Fuel": round(get_packet_value(packet, raw, "Fuel", 0) * 100, 1),
+                    "Car": car_name,
+                    "Track": "FH5",
+                    "CarID": car_id,
+                    "TrackID": 0,
+                    "Temps": {k: round((get_packet_value(packet, raw, f"TireTemp_{k.upper()}", 32) - 32) * 5 / 9) for k in ['fl', 'fr', 'rl', 'rr']},
+                    "Wears": {"fl": 0, "fr": 0, "rl": 0, "rr": 0},
+                    "Lap": fh_lap_num,
+                    "CurrentLap": fh_curr_lap,
+                    "BestLap": fh_best_lap,
+                    "HistBestLap": fh_best_lap,
+                    "OptimalLap": "--:--.---",
+                    "Delta": "--",
+                    "RemLaps": 99,
+                    "Pit": False,
+                    "GhostLap": None,
+                    "FrontSlip": front_slip,
+                    "RearSlip": rear_slip,
+                    "SteerInput": steer_pct,
+                    "GForceLat": g_lat,
+                    "GForceLong": g_long,
+                    "ThrottleCeil": throttle_ceil,
+                    "Mode": "FH5",
+                    "IsRec": False,
+                    "IsSessionRec": config["is_session_recording"],
+                    "AutoSave": False,
+                    "Position": int(get_packet_value(packet, raw, "RacePosition", 0)),
+                    "Debrief": None
+                }
+
+                if config["is_session_recording"]:
+                    if not session_record_meta.get("start_ts"):
+                        session_record_meta = {"track": "FH5", "car": car_name, "mode": "FH5", "start_ts": time.time()}
+                    session_record_buffer.append(build_full_session_row(
+                        packet=packet,
+                        raw=raw,
+                        mode="FH5",
+                        car_name=car_name,
+                        track_name="FH5",
+                        lap_num=fh_lap_num,
+                        throttle_ceil=throttle_ceil,
+                        steer_pct=steer_pct,
+                        g_lat=g_lat,
+                        g_long=g_long
+                    ))
+                continue
+
             lap_num = packet.get("LapNumber", 0) + 1
             car_id, track_id = packet.get("CarOrdinal", 0), packet.get("TrackOrdinal", 0)
-            car_name = fm_db.get(str(car_id), f"Car_{car_id}") if len(raw) == 331 else fh5_db.get(str(car_id), f"Car_{car_id}")
-            track_name = track_db.get(str(track_id), f"Track_{track_id}") if len(raw) == 331 else "FH5_FreeRoam"
+            car_name = fm_db.get(str(car_id), f"Car_{car_id}")
+            track_name = track_db.get(str(track_id), f"Track_{track_id}")
             
             fuel = round(packet.get("Fuel", 0) * 100, 1)
             wears = {k: round(packet.get(f"TireWear_{k.upper()}", 0)*100, 1) for k in ['fl', 'fr', 'rl', 'rr']}
@@ -501,6 +790,11 @@ def udp_listener():
             acc, brk = packet.get("Accel", 0)/2.55, packet.get("Brake", 0)/2.55
             front_slip = (packet.get("TireCombinedSlip_FL",0) > 1.2 or packet.get("TireCombinedSlip_FR",0) > 1.2) and brk > 15
             rear_slip = (packet.get("TireCombinedSlip_RL",0) > 1.5 or packet.get("TireCombinedSlip_RR",0) > 1.5) and acc > 30
+            throttle_ceil = predict_throttle_ceiling(packet, raw)
+            steer_raw = int(packet.get("Steer", 0) or 0)
+            steer_pct = int(max(-100, min(100, round(steer_raw / 1.27))))
+            g_lat = round(float(packet.get("Accel_X", 0.0)) / 9.81, 3)
+            g_long = round(float(packet.get("Accel_Z", 0.0)) / 9.81, 3)
 
             if (track_name, car_name) != current_track_car:
                 current_track_car = (track_name, car_name)
@@ -583,10 +877,28 @@ def udp_listener():
                 "Wears": wears, "Lap": lap_num, "CurrentLap": format_lap_time(packet.get("CurrentLapTime", 0)).replace("-", ":"),
                 "BestLap": format_lap_time(packet.get("BestLapTime", 0)).replace("-", ":"), "HistBestLap": state["historical_best"], "OptimalLap": state.get("optimal_lap", "--:--.---"),
                 "Delta": delta_str, "RemLaps": max(0.0, round(rem_laps, 1)), "Pit": fuel < 3.0 or max_w > 75, 
-                "GhostLap": state.get("ghost_lap"), "FrontSlip": front_slip, "RearSlip": rear_slip, "Mode": "FM" if len(raw)==331 else "FH5",
-                "IsRec": config["is_recording"], "AutoSave": config["auto_save_best"], "Position": packet.get("RacePosition", 0),
+                "GhostLap": state.get("ghost_lap"), "FrontSlip": front_slip, "RearSlip": rear_slip, "Mode": "FM",
+                "SteerInput": steer_pct, "GForceLat": g_lat, "GForceLong": g_long,
+                "ThrottleCeil": throttle_ceil,
+                "IsRec": config["is_recording"], "IsSessionRec": config["is_session_recording"], "AutoSave": config["auto_save_best"], "Position": packet.get("RacePosition", 0),
                 "Debrief": state.get("pending_debrief")
             }
+
+            if config["is_session_recording"]:
+                if not session_record_meta.get("start_ts"):
+                    session_record_meta = {"track": track_name, "car": car_name, "mode": "FM", "start_ts": time.time()}
+                session_record_buffer.append(build_full_session_row(
+                    packet=packet,
+                    raw=raw,
+                    mode="FM",
+                    car_name=car_name,
+                    track_name=track_name,
+                    lap_num=lap_num,
+                    throttle_ceil=throttle_ceil,
+                    steer_pct=steer_pct,
+                    g_lat=g_lat,
+                    g_long=g_long
+                ))
         except: pass
 
 @app.post("/api/dyno")
@@ -650,6 +962,7 @@ def dyno_simulator_thread():
             "Speed": int(speed), "RPM": int(rpm), "MaxRPM": 9000,
             "Accel": accel, "Brake": brake, "Fuel": fuel,
             "Car": "Dyno Showcase GT3", "Track": "Test Track",
+            "SteerInput": 0, "GForceLat": 0.0, "GForceLong": 0.0,
             "Temps": {"fl": 90, "fr": 90, "rl": 95, "rr": 95},
             "Wears": {"fl": wear, "fr": wear, "rl": wear+2, "rr": wear+2},
             "Lap": lap, 
@@ -695,7 +1008,7 @@ async def list_setups():
 
 @app.get("/api/setups/load")
 async def load_setup(file: str, type: str):
-    path = os.path.join(SETUPS_SAVES_DIR if type == "saves" else SETUPS_TEMP_DIR, safe_filename(file))
+    path = resolve_file(SETUPS_SAVES_DIR if type == "saves" else SETUPS_TEMP_DIR, file, {".json"})
     if os.path.exists(path):
         try:
             with open(path, 'r', encoding='utf-8') as f: return json.load(f)
@@ -705,43 +1018,43 @@ async def load_setup(file: str, type: str):
 @app.get("/api/setups/check_temp")
 async def check_temp_setups():
     now = time.time()
-    expired = [{"name": os.path.basename(f), "path": f, "age_days": round((now - os.path.getmtime(f))/86400, 1)} for f in glob.glob(os.path.join(SETUPS_TEMP_DIR, "*.json")) if os.path.isfile(f) and (now - os.path.getmtime(f) > 259200)]
+    expired = [{"name": os.path.basename(f), "path": os.path.basename(f), "age_days": round((now - os.path.getmtime(f))/86400, 1)} for f in glob.glob(os.path.join(SETUPS_TEMP_DIR, "*.json")) if os.path.isfile(f) and (now - os.path.getmtime(f) > 259200)]
     return {"expired": expired}
 
 @app.post("/api/setups/clean_temp")
 async def clean_temp_setups(req: Request):
     data = await req.json()
+    paths = [resolve_file(SETUPS_TEMP_DIR, item.get("path"), {".json"}) for item in data.get("files", [])]
     deleted = 0
-    for f_info in data.get("files", []):
-        path = f_info.get("path")
-        if path and os.path.exists(path) and SETUPS_TEMP_DIR in path:
-            try: os.remove(path); deleted += 1
-            except: pass
+    for path in paths:
+        if path.is_file():
+            try: path.unlink(); deleted += 1
+            except OSError: pass
     return {"success": True, "deleted": deleted}
 
 @app.post("/api/setups/save")
 async def save_setup(req: Request):
     data = await req.json()
-    filepath = os.path.join(SETUPS_SAVES_DIR if data.get("save_type") == "saves" else SETUPS_TEMP_DIR, f"{safe_filename(data.get('setup_name', f'setup_{int(time.time())}'))}.json")
+    filepath = resolve_file(SETUPS_SAVES_DIR if data.get("save_type") == "saves" else SETUPS_TEMP_DIR, f"{safe_filename(data.get('setup_name', f'setup_{int(time.time())}'))}.json", {".json"})
     try:
         with open(filepath, 'w', encoding='utf-8') as f: json.dump(data.get("setup_data", {}), f, ensure_ascii=False, indent=4)
         return {"success": True, "path": filepath}
     except Exception as e: return {"success": False, "error": str(e)}
 
 @app.get("/")
-async def index(): return FileResponse('index.html')
+async def index(): return FileResponse(WEB_DIR / 'index.html')
 @app.get("/replay")
-async def replay_page(): return FileResponse('replay.html')
+async def replay_page(): return FileResponse(WEB_DIR / 'replay.html')
 @app.get("/obs")
-async def obs_page(): return FileResponse('obs.html')
+async def obs_page(): return FileResponse(WEB_DIR / 'obs.html')
 @app.get("/setup")
-async def setup_page(): return FileResponse('setup.html')
+async def setup_page(): return FileResponse(WEB_DIR / 'setup.html')
 
 @app.get("/api/laps")
 async def get_files():
     files_info = []
     for root, _, files in os.walk(BASTLAP_DIR):
-        if "temp_lap" in root or "temp lap" in root: continue
+        if any(part in {"temp_lap", "temp lap"} for part in Path(root).relative_to(BASTLAP_DIR).parts): continue
         for f in files:
             if f.endswith(".csv"):
                 path = os.path.join(root, f)
@@ -752,25 +1065,27 @@ async def get_files():
 @app.delete("/api/laps")
 async def delete_lap_file(req: Request):
     data = await req.json()
-    filepath = data.get("path")
-    if filepath:
-        full_path = os.path.join(BASTLAP_DIR, filepath)
-        if os.path.exists(full_path) and BASTLAP_DIR in full_path:
-            try:
-                os.remove(full_path)
-                return {"success": True}
-            except: pass
+    full_path = resolve_file(BASTLAP_DIR, data.get("path"), {".csv"})
+    if full_path.is_file():
+        try:
+            full_path.unlink()
+            return {"success": True}
+        except OSError: pass
     return {"success": False}
 
 @app.get("/data/{path:path}")
 async def get_data(path: str):
-    full_path = os.path.join(BASTLAP_DIR, path)
-    return FileResponse(full_path) if os.path.exists(full_path) else {"error": "Not found"}
+    full_path = resolve_file(BASTLAP_DIR, path, {".csv"})
+    if not full_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(full_path)
 
 @app.get("/{filename:path}")
 async def get_static_assets(filename: str):
-    if filename.endswith((".png", ".jpg", ".gif", ".jpeg")) and os.path.exists(filename): return FileResponse(filename)
-    return {"error": "Not found"}
+    path = resolve_file(ASSETS_DIR, filename, {".png", ".jpg", ".gif", ".jpeg"})
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path)
 
 @app.websocket("/ws")
 async def ws_handler(ws: WebSocket):
@@ -787,6 +1102,31 @@ async def ws_handler(ws: WebSocket):
                 if cmd == "toggle_rec": 
                     config["is_recording"] = data.get("val", False)
                     state["last_packet"]["IsRec"] = config["is_recording"]
+                elif cmd == "toggle_session_rec":
+                    global session_record_buffer, session_record_meta
+                    next_state = data.get("val", False)
+                    if next_state and not config["is_session_recording"]:
+                        config["is_session_recording"] = True
+                        session_record_buffer.clear()
+                        lp = state.get("last_packet", {})
+                        session_record_meta = {
+                            "track": lp.get("Track", "UnknownTrack"),
+                            "car": lp.get("Car", "UnknownCar"),
+                            "mode": lp.get("Mode", "FM"),
+                            "start_ts": time.time()
+                        }
+                    elif (not next_state) and config["is_session_recording"]:
+                        config["is_session_recording"] = False
+                        rows = session_record_buffer.copy()
+                        meta = session_record_meta.copy()
+                        session_record_buffer.clear()
+                        session_record_meta = {"track": "UnknownTrack", "car": "UnknownCar", "mode": "FM", "start_ts": 0}
+                        if rows:
+                            Thread(
+                                target=save_session_record_thread,
+                                args=(meta.get("track", "UnknownTrack"), meta.get("car", "UnknownCar"), meta.get("mode", "FM"), rows, meta.get("start_ts", 0))
+                            ).start()
+                    state["last_packet"]["IsSessionRec"] = config["is_session_recording"]
                 elif cmd == "toggle_save": 
                     config["auto_save_best"] = data.get("val", False)
                     state["last_packet"]["AutoSave"] = config["auto_save_best"]
@@ -801,21 +1141,31 @@ async def ws_handler(ws: WebSocket):
                     if p["type"] == "car":
                         db = fm_db if p["game"] == "FM" else fh5_db
                         db[m_id] = p["name"]
-                        with open(f"{p['game'].lower()}_cars.json", 'w', encoding='utf-8') as f: json.dump(db, f, ensure_ascii=False, indent=4)
+                        with open(DATA_DIR / ('fm_cars.json' if p['game'] == 'FM' else 'fh5_cars.json'), 'w', encoding='utf-8') as f: json.dump(db, f, ensure_ascii=False, indent=4)
                     else:
                         track_db[m_id] = p["name"]
-                        with open('Track_Name.json', 'w', encoding='utf-8') as f: json.dump(track_db, f, ensure_ascii=False, indent=4)
+                        with open(DATA_DIR / 'Track_Name.json', 'w', encoding='utf-8') as f: json.dump(track_db, f, ensure_ascii=False, indent=4)
                 elif cmd == "set_active_strategy":
                     state["active_strategy"] = data.get("val")
                 elif cmd == "clear_debrief":
                     state["pending_debrief"] = None
             except WebSocketDisconnect: break
             except Exception: pass
-    await asyncio.gather(send(), recv())
+    tasks = [asyncio.create_task(send()), asyncio.create_task(recv())]
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
+    except (WebSocketDisconnect, OSError):
+        pass
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 if __name__ == "__main__":
     optimize_cpu_affinity()
     print_startup_banner()
     Thread(target=udp_listener, daemon=True).start()
     Thread(target=dyno_simulator_thread, daemon=True).start() # <--- 启动测功机后台挂起
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
+    uvicorn.run(app, host=WEB_HOST, port=WEB_PORT, log_level="warning")
